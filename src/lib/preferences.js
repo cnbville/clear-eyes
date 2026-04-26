@@ -6,6 +6,7 @@ export const DEFAULT_PREFERENCES = {
   vibration: true,
   xpEnabled: true,
   smartRestEnabled: true,
+  lowMemoryMode: true,
 }
 
 export function canUsePreferenceStorage() {
@@ -36,11 +37,18 @@ export function writeStoredPreferences(preferences) {
     return
   }
 
+  const nextPreferences = {
+    ...DEFAULT_PREFERENCES,
+    ...preferences,
+  }
+
   window.localStorage.setItem(
     PREFERENCES_STORAGE_KEY,
-    JSON.stringify({
-      ...DEFAULT_PREFERENCES,
-      ...preferences,
+    JSON.stringify(nextPreferences),
+  )
+  window.dispatchEvent(
+    new CustomEvent('iron:preferences-changed', {
+      detail: nextPreferences,
     }),
   )
 }

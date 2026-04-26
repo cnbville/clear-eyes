@@ -457,6 +457,7 @@ function SettingsPage({ program, progress, updateProgress, onNavigate, onDataRes
                   ['Units', preferences.units === 'kg' ? 'Kilograms' : 'Pounds', 'units'],
                   ['Rest Sound', preferences.restSound ? 'On' : 'Off', 'restSound'],
                   ['Smart Rest', preferences.smartRestEnabled ? 'On' : 'Off', 'smartRestEnabled'],
+                  ['Low-Memory Mode', preferences.lowMemoryMode ? 'On' : 'Off', 'lowMemoryMode'],
                   ['Vibration', preferences.vibration ? 'On' : 'Off', 'vibration'],
                   ['XP Tracking', preferences.xpEnabled ? 'On' : 'Off', 'xpEnabled'],
                 ].map(([label, value, key]) => (

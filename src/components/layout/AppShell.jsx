@@ -7,8 +7,8 @@ function AppShell({
 }) {
   return (
     <div className="min-h-screen overflow-x-hidden bg-[#060606] font-sans text-zinc-50">
-      <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top_left,rgba(201,162,39,0.12),transparent_28%),radial-gradient(circle_at_top_right,rgba(255,255,255,0.03),transparent_22%),linear-gradient(180deg,#09090b_0%,#060606_42%,#050505_100%)]" />
-      <div className="pointer-events-none fixed inset-0 opacity-40 [background-image:linear-gradient(rgba(255,255,255,0.02)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.02)_1px,transparent_1px)] [background-size:140px_140px]" />
+      <div className="iron-atmosphere pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top_left,rgba(201,162,39,0.12),transparent_28%),radial-gradient(circle_at_top_right,rgba(255,255,255,0.03),transparent_22%),linear-gradient(180deg,#09090b_0%,#060606_42%,#050505_100%)]" />
+      <div className="iron-atmosphere pointer-events-none fixed inset-0 opacity-40 [background-image:linear-gradient(rgba(255,255,255,0.02)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.02)_1px,transparent_1px)] [background-size:140px_140px]" />
 
       <div className="relative mx-auto w-full max-w-[1600px] px-0 pb-[calc(env(safe-area-inset-bottom)+6.5rem)] pt-0 sm:px-4 sm:pt-3 lg:px-8 lg:pb-24 lg:pt-6">
         {showChrome ? (

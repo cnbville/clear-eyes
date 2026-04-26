@@ -109,12 +109,6 @@ export function initializeRuntimeDiagnostics() {
   const handleBeforeUnload = () => {
     recordRuntimeEvent('before-unload')
   }
-  const sampleIntervalId = window.setInterval(() => {
-    recordRuntimeEvent('memory-sample', {
-      visibilityState: document.visibilityState,
-    })
-  }, 30000)
-
   window.addEventListener('error', handleError)
   window.addEventListener('unhandledrejection', handleUnhandledRejection)
   document.addEventListener('visibilitychange', handleVisibilityChange)
@@ -122,7 +116,6 @@ export function initializeRuntimeDiagnostics() {
   window.addEventListener('beforeunload', handleBeforeUnload)
 
   return () => {
-    window.clearInterval(sampleIntervalId)
     window.removeEventListener('error', handleError)
     window.removeEventListener('unhandledrejection', handleUnhandledRejection)
     document.removeEventListener('visibilitychange', handleVisibilityChange)
