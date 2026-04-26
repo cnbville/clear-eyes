@@ -14,7 +14,11 @@ import FooterBar from './components/shared/FooterBar.jsx'
 import Kbd from './components/shared/Kbd.jsx'
 import { useToast } from './components/shared/ToastProvider.jsx'
 import { useCommandRegistry } from './hooks/useCommandRegistry.js'
-import { useProgramRuntime, useProgramSummary } from './hooks/useProgram.js'
+import {
+  loadProgramStructure,
+  useProgramRuntime,
+  useProgramSummary,
+} from './hooks/useProgram.js'
 import { useProgress } from './hooks/useProgress.js'
 import { useWorkoutSession } from './hooks/useWorkoutSession.js'
 import { calculateRestDiscipline, calculateVolume } from './lib/calculations.js'
@@ -610,11 +614,9 @@ function App() {
     refetch: refetchProgramSummary,
   } = useProgramSummary()
   const shouldLoadProgramRuntime = Boolean(
-    (activeWorkout?.source === 'program' &&
-      (!activeWorkout?.programSnapshot || !activeWorkout?.swapCandidateResolver)) ||
     sessionSummary?.source === 'program' ||
       phaseCompletionReport ||
-      ['program', 'progress', 'programs'].includes(page),
+      ['home', 'program', 'progress', 'programs'].includes(page),
   )
   const {
     program: runtimeProgram,
@@ -627,13 +629,10 @@ function App() {
     recoveryRecommendation,
     weeklyQuota,
     slotStates,
-    getSwapCandidates,
   } = useProgramRuntime(summaryProgram?.id ?? null, {
     enabled: shouldLoadProgramRuntime,
   })
-  const program = runtimeProgram ?? activeWorkout?.programSnapshot ?? summaryProgram
-  const resolvedGetSwapCandidates =
-    activeWorkout?.swapCandidateResolver ?? getSwapCandidates
+  const program = runtimeProgram ?? summaryProgram
   const programLoading =
     summaryProgramLoading ||
     (shouldLoadProgramRuntime && Boolean(summaryProgram?.id) && runtimeProgramLoading)
@@ -709,44 +708,6 @@ function App() {
       clearActiveWorkoutPointer()
     }
   }, [])
-
-  const handleWorkoutSessionReady = useCallback((readySessionId) => {
-    setActiveWorkout((currentWorkout) => {
-      if (!currentWorkout || currentWorkout.sessionId !== readySessionId) {
-        return currentWorkout
-      }
-
-      const nextProgramSnapshot =
-        currentWorkout.source === 'program' && program?.id === currentWorkout.programId
-          ? program
-          : currentWorkout.programSnapshot ?? null
-      const nextSwapCandidateResolver =
-        currentWorkout.source === 'program'
-          ? currentWorkout.swapCandidateResolver ?? getSwapCandidates ?? null
-          : null
-
-      if (
-        currentWorkout.day === null &&
-        currentWorkout.initialDraft === null &&
-        currentWorkout.initialReadiness === null &&
-        currentWorkout.remoteDraftDetected === false &&
-        currentWorkout.programSnapshot === nextProgramSnapshot &&
-        currentWorkout.swapCandidateResolver === nextSwapCandidateResolver
-      ) {
-        return currentWorkout
-      }
-
-      return {
-        ...currentWorkout,
-        day: null,
-        initialDraft: null,
-        initialReadiness: null,
-        remoteDraftDetected: false,
-        programSnapshot: nextProgramSnapshot,
-        swapCandidateResolver: nextSwapCandidateResolver,
-      }
-    })
-  }, [getSwapCandidates, program])
 
   const resolveRecoveryPrompt = useCallback(() => {
     setSessionRecoveryPrompt(null)
@@ -836,8 +797,6 @@ function App() {
         phaseInfo: null,
         source: 'custom',
         programId: null,
-        programSnapshot: null,
-        swapCandidateResolver: null,
         templateId: options.templateId ?? null,
         templateName: requestedWorkout.templateName,
         sessionId: preparation.sessionId,
@@ -870,8 +829,6 @@ function App() {
       phaseInfo: requestedWorkout.phaseInfo,
       source,
       programId: program?.id ?? null,
-      programSnapshot: program ?? null,
-      swapCandidateResolver: getSwapCandidates ?? null,
       templateId: null,
       templateName: requestedWorkout.templateName,
       sessionId: preparation.sessionId,
@@ -886,7 +843,7 @@ function App() {
       slotStatus: resolvedSlot.status ?? 'pending',
       slotDayNumber: resolvedSlot.day_number ?? day?.day_number ?? null,
     })
-  }, [applyActiveWorkout, currentSlot, getSwapCandidates, program, showToast, slotStates])
+  }, [applyActiveWorkout, currentSlot, program, showToast, slotStates])
 
   const handleSkipOverdueSlot = useCallback(async () => {
     if (!program?.id) {
@@ -1403,8 +1360,6 @@ function App() {
           initialReadiness={activeWorkout.initialReadiness ?? null}
           remoteDraftDetected={Boolean(activeWorkout.remoteDraftDetected)}
           programId={activeWorkout.programId ?? program?.id ?? null}
-          getSwapCandidates={resolvedGetSwapCandidates}
-          onSessionReady={handleWorkoutSessionReady}
           onFinish={async (result) => {
             if (isPersistingSession) {
               return
@@ -1426,6 +1381,10 @@ function App() {
               0,
             )
             const isProgramWorkout = (activeWorkout.source ?? 'program') === 'program'
+            const resolvedProgram =
+              isProgramWorkout && !(program?.phases?.length)
+                ? await loadProgramStructure(activeWorkout.programId ?? program?.id ?? null)
+                : program
 
             let sessionId = null
             let sessionError = null
@@ -1534,7 +1493,7 @@ function App() {
                   }
                 }
 
-                const adaptiveContext = await getProgramAdaptiveContext(program, progress)
+                const adaptiveContext = await getProgramAdaptiveContext(resolvedProgram, progress)
                 const progressResult = await advanceProgress({
                   slotStates: adaptiveContext.slotStates ?? [],
                   phaseNumber: activeWorkout.phaseInfo?.phase_number ?? null,
@@ -1574,7 +1533,7 @@ function App() {
                     continue
                   }
 
-                  const exposures = await getRecentSlotExposureHistory(program, {
+                  const exposures = await getRecentSlotExposureHistory(resolvedProgram, {
                     phaseNumber: activeWorkout.phaseInfo?.phase_number ?? null,
                     dayNumber: activeWorkout.slotDayNumber ?? exercise?.day_number ?? null,
                     exerciseId: exercise.exercise_id,

@@ -267,8 +267,32 @@ function HistoryPage({ program }) {
 
     async function loadSelectedSets() {
       if (!selectedSessionIds.length || !program?.id) {
+        if (!isCancelled) {
+          setSetsBySessionId({})
+        }
         return
       }
+
+      setSetsBySessionId((current) => {
+        const currentKeys = Object.keys(current)
+        const shouldTrim =
+          currentKeys.length !== selectedSessionIds.length ||
+          currentKeys.some((sessionId) => !selectedSessionIds.includes(sessionId))
+
+        if (!shouldTrim) {
+          return current
+        }
+
+        const next = {}
+
+        selectedSessionIds.forEach((sessionId) => {
+          if (current[sessionId]) {
+            next[sessionId] = current[sessionId]
+          }
+        })
+
+        return next
+      })
 
       const missingSessionIds = selectedSessionIds.filter((sessionId) => !setsBySessionId[sessionId])
 

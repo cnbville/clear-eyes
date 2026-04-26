@@ -5,6 +5,7 @@ import ExerciseCard from '../components/workout/ExerciseCard.jsx'
 import RestTimer from '../components/workout/RestTimer.jsx'
 import { useInteractionContext } from '../hooks/useCommandRegistry.js'
 import { useGhostData } from '../hooks/useGhostData.js'
+import { getCoachSafeSwapCandidates } from '../hooks/useProgram.js'
 import { useRestTimer } from '../hooks/useRestTimer.js'
 import {
   buildCoachSafeSwapOptions,
@@ -30,20 +31,27 @@ function MobilePanel({
   defaultOpen = false,
   children,
 }) {
+  const [isOpen, setIsOpen] = useState(defaultOpen)
+
   return (
-    <details
-      className="rounded-[24px] border border-white/[0.05] bg-iron-900/70 lg:hidden"
-      {...(defaultOpen ? { open: true } : {})}
-    >
-      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-4">
+    <section className="rounded-[24px] border border-white/[0.05] bg-iron-900/70 lg:hidden">
+      <button
+        type="button"
+        className="flex w-full items-center justify-between gap-3 px-4 py-4 text-left"
+        onClick={() => setIsOpen((current) => !current)}
+        aria-expanded={isOpen}
+      >
         <div>
           <p className="text-[10px] uppercase tracking-[0.18em] text-zinc-600">{label}</p>
           <p className="mt-1 text-[13px] font-semibold text-zinc-100">{headline}</p>
         </div>
-        <ChevronDown className="h-4 w-4 text-zinc-500" strokeWidth={1.8} />
-      </summary>
-      <div className="border-t border-white/[0.05] px-4 py-4">{children}</div>
-    </details>
+        <ChevronDown
+          className={`h-4 w-4 text-zinc-500 transition ${isOpen ? 'rotate-180' : ''}`}
+          strokeWidth={1.8}
+        />
+      </button>
+      {isOpen ? <div className="border-t border-white/[0.05] px-4 py-4">{children}</div> : null}
+    </section>
   )
 }
 
@@ -366,8 +374,6 @@ function ActiveWorkoutPage({
   initialReadiness = null,
   remoteDraftDetected = false,
   programId = null,
-  getSwapCandidates = null,
-  onSessionReady = null,
   onFinish,
 }) {
   const [sessionDay] = useState(() => day ?? null)
@@ -476,12 +482,6 @@ function ActiveWorkoutPage({
   const bottomPaddingClassName = 'pb-[10.75rem] pt-24 sm:px-6 lg:px-8 lg:pb-10 lg:pt-28'
 
   useEffect(() => {
-    if (sessionId) {
-      onSessionReady?.(sessionId)
-    }
-  }, [onSessionReady, sessionId])
-
-  useEffect(() => {
     if (!initialRestTimerState.isVisible || !initialRestTimerState.targetSeconds) {
       return
     }
@@ -515,9 +515,7 @@ function ActiveWorkoutPage({
     const fallbackOptions = buildCoachSafeSwapOptions(exercise, sessionExercises, 20)
 
     try {
-      const nextOptions = getSwapCandidates
-        ? await getSwapCandidates(exercise, 20)
-        : fallbackOptions
+      const nextOptions = await getCoachSafeSwapCandidates(exercise, sessionExercises, 20)
 
       setSwapOptionsByExerciseKey((current) => ({
         ...current,
@@ -537,7 +535,6 @@ function ActiveWorkoutPage({
   }, [
     currentExercise,
     currentExerciseKey,
-    getSwapCandidates,
     sessionExercises,
     swapOptionsByExerciseKey,
     swapOptionsLoadingByExerciseKey,

@@ -18,6 +18,8 @@ import { isConfigured, supabase } from '../lib/supabase.js'
 
 const SWAP_CANDIDATE_LIMIT = 20
 const SWAP_QUERY_LIMIT = 80
+const SWAP_FETCH_CACHE_LIMIT = 48
+const swapFetchCache = new Map()
 
 function createEmptyWeeklyQuota(daysPerWeek = 0) {
   return {
@@ -111,7 +113,7 @@ function mapExerciseRow(row) {
   }
 }
 
-async function fetchProgramStructure(programId, activeProgram = null) {
+export async function loadProgramStructure(programId, activeProgram = null) {
   const resolvedProgram = activeProgram ?? (await fetchProgramSummary(programId))
 
   if (!resolvedProgram?.id) {
@@ -266,6 +268,82 @@ async function fetchProgramStructure(programId, activeProgram = null) {
         weeks: phaseWeeks,
       }
     }),
+  }
+}
+
+function getSwapFetchCacheKey(baseExercise, limit = SWAP_CANDIDATE_LIMIT) {
+  if (!baseExercise) {
+    return null
+  }
+
+  return `${baseExercise?.exercise_id ?? baseExercise?.id ?? baseExercise?.name ?? 'exercise'}:${limit}`
+}
+
+function getCachedSwapRows(cacheKey) {
+  if (!cacheKey || !swapFetchCache.has(cacheKey)) {
+    return null
+  }
+
+  const cachedRows = swapFetchCache.get(cacheKey)
+  swapFetchCache.delete(cacheKey)
+  swapFetchCache.set(cacheKey, cachedRows)
+  return cachedRows
+}
+
+function setCachedSwapRows(cacheKey, rows) {
+  if (!cacheKey) {
+    return
+  }
+
+  if (swapFetchCache.has(cacheKey)) {
+    swapFetchCache.delete(cacheKey)
+  }
+
+  swapFetchCache.set(cacheKey, rows)
+
+  while (swapFetchCache.size > SWAP_FETCH_CACHE_LIMIT) {
+    const oldestKey = swapFetchCache.keys().next().value
+    swapFetchCache.delete(oldestKey)
+  }
+}
+
+export async function getCoachSafeSwapCandidates(
+  baseExercise,
+  existingExercises = [],
+  limit = SWAP_CANDIDATE_LIMIT,
+) {
+  if (!baseExercise) {
+    return []
+  }
+
+  const localFallback = buildCoachSafeSwapOptions(baseExercise, existingExercises, limit)
+
+  if (!isConfigured) {
+    return localFallback
+  }
+
+  const cacheKey = getSwapFetchCacheKey(baseExercise, limit)
+  const cachedRows = getCachedSwapRows(cacheKey)
+
+  if (cachedRows) {
+    return buildCoachSafeSwapOptions(
+      baseExercise,
+      [...existingExercises, ...cachedRows],
+      limit,
+    )
+  }
+
+  try {
+    const fetchedRows = await fetchSwapExerciseRows(baseExercise, limit)
+    setCachedSwapRows(cacheKey, fetchedRows)
+
+    return buildCoachSafeSwapOptions(
+      baseExercise,
+      [...existingExercises, ...fetchedRows],
+      limit,
+    )
+  } catch {
+    return localFallback
   }
 }
 
@@ -617,7 +695,7 @@ export function useProgramRuntime(programId = null, options = {}) {
 
       try {
         const [resolvedProgram, activeProgress] = await Promise.all([
-          fetchProgramStructure(programId),
+          loadProgramStructure(programId),
           fetchProgramProgress(programId),
         ])
 
@@ -667,34 +745,24 @@ export function useProgramRuntime(programId = null, options = {}) {
 
   const getSwapCandidates = useCallback(
     async (baseExercise, limit = SWAP_CANDIDATE_LIMIT) => {
-      if (!baseExercise) {
-        return []
-      }
-
-      const cacheKey = `${baseExercise?.exercise_id ?? baseExercise?.id ?? baseExercise?.name ?? 'exercise'}:${limit}`
-      const cachedValue = swapCandidateCacheRef.current.get(cacheKey)
+      const cacheKey = getSwapFetchCacheKey(baseExercise, limit)
+      const cachedValue = cacheKey ? swapCandidateCacheRef.current.get(cacheKey) : null
 
       if (cachedValue) {
         return cachedValue
       }
 
-      const localFallback = buildCoachSafeSwapOptions(baseExercise, programExerciseCatalog, limit)
+      const resolvedOptions = await getCoachSafeSwapCandidates(
+        baseExercise,
+        programExerciseCatalog,
+        limit,
+      )
 
-      if (!isConfigured) {
-        swapCandidateCacheRef.current.set(cacheKey, localFallback)
-        return localFallback
-      }
-
-      try {
-        const fetchedCandidates = await fetchSwapExerciseRows(baseExercise, limit)
-        const mergedCatalog = [...programExerciseCatalog, ...fetchedCandidates]
-        const resolvedOptions = buildCoachSafeSwapOptions(baseExercise, mergedCatalog, limit)
+      if (cacheKey) {
         swapCandidateCacheRef.current.set(cacheKey, resolvedOptions)
-        return resolvedOptions
-      } catch {
-        swapCandidateCacheRef.current.set(cacheKey, localFallback)
-        return localFallback
       }
+
+      return resolvedOptions
     },
     [programExerciseCatalog],
   )
