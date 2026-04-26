@@ -284,7 +284,7 @@ function EmptyState({ page, onUploadClick, errorMessage }) {
             onClick={onUploadClick}
           >
             <span>Load Program</span>
-            <Kbd className="border-black/10 bg-black/10 text-iron-900">↵</Kbd>
+            <Kbd className="hidden border-black/10 bg-black/10 text-iron-900 lg:inline-flex">↵</Kbd>
           </button>
           <div className="rounded-2xl border border-white/[0.08] bg-iron-900/70 px-4 py-3 text-[12px] text-zinc-500">
             Current page: {page}
@@ -1852,13 +1852,11 @@ function App() {
 
       {!showAppChrome && !activeWorkout ? <Breadcrumb floating topClassName="top-[4.75rem]" /> : null}
 
-      {activeWorkout ? (
+      {activeWorkout || showAppChrome ? (
         <div className="hidden lg:block">
           <FooterBar bottomOffsetClassName={footerBottomOffsetClassName} />
         </div>
-      ) : (
-        <FooterBar bottomOffsetClassName={footerBottomOffsetClassName} />
-      )}
+      ) : null}
 
       <SessionRecoveryOverlay
         sessions={sessionRecoveryPrompt?.sessions ?? []}

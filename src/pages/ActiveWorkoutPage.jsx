@@ -1060,7 +1060,7 @@ function ActiveWorkoutPage({
             >
               <ArrowLeft className="h-4 w-4" strokeWidth={1.8} />
               <span>End</span>
-              <Kbd>Esc</Kbd>
+              <Kbd className="hidden lg:inline-flex">Esc</Kbd>
             </button>
 
             <p className="min-w-0 truncate text-[15px] font-semibold tracking-[-0.02em] text-zinc-100">
@@ -1559,7 +1559,6 @@ function ActiveWorkoutPage({
             disabled={!sessionExercises.length}
           >
             <span>{mobileActionLabel}</span>
-            <Kbd className="border-black/10 bg-black/10 text-iron-900">⌘N</Kbd>
             <ArrowRight className="h-4 w-4" strokeWidth={2} />
           </button>
         </div>
