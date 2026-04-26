@@ -1,0 +1,121 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+  font-family: 'Geist', sans-serif;
+  --panel: rgba(18, 18, 20, 0.94);
+  --panel-elevated: rgba(10, 10, 11, 0.92);
+  --border: rgba(255, 255, 255, 0.06);
+  --muted: #a1a1aa;
+  --muted-2: #71717a;
+  --gold: #c9a227;
+  --green: #4ade80;
+}
+
+* {
+  box-sizing: border-box;
+  scrollbar-width: thin;
+  scrollbar-color: #27272a #09090b;
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-track {
+  background: #09090b;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: #27272a;
+  border-radius: 9999px;
+  border: 2px solid #09090b;
+}
+
+body {
+  margin: 0;
+  background: #09090b;
+  color: #fafafa;
+  font-family: 'Geist', sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+code,
+pre {
+  font-family: 'Geist Mono', monospace;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+input[type='number']::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+}
+
+input[type='number'] {
+  -moz-appearance: textfield;
+}
+
+@layer components {
+  .section-frame {
+    border-radius: 1.75rem;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    background: rgba(19, 19, 22, 0.78);
+  }
+
+  .hero-poster {
+    border-radius: 1.75rem;
+    border: 1px solid rgba(255, 255, 255, 0.04);
+    background: linear-gradient(180deg, rgba(20, 20, 22, 0.94), rgba(10, 10, 11, 0.92));
+  }
+
+  .eyebrow {
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.34em;
+    text-transform: uppercase;
+    color: var(--gold);
+  }
+
+  .display-title {
+    font-family: 'Geist', sans-serif;
+    font-weight: 900;
+    letter-spacing: -0.06em;
+    line-height: 0.95;
+  }
+
+  .utility-kicker {
+    font-size: 0.6875rem;
+    font-weight: 700;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--muted-2);
+  }
+
+  .metric-rail {
+    border-radius: 1.5rem;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    background: rgba(5, 5, 7, 0.2);
+  }
+
+  .soft-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    border-radius: 9999px;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    background: rgba(5, 5, 7, 0.22);
+    padding: 0.65rem 1rem;
+    font-size: 0.75rem;
+    color: #a1a1aa;
+  }
+
+  .motion-enter,
+  .motion-enter-delayed {
+    animation: none;
+  }
+}
