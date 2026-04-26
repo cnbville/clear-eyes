@@ -60,7 +60,7 @@ function RestTimer({
   const [now, setNow] = useState(() => Date.now())
   const hasVibratedRef = useRef(false)
   const displayElapsed =
-    isRunning && timerStartedAt
+    isRunning && timerStartedAt !== null && timerStartedAt !== undefined
       ? Math.max(Math.floor((now - timerStartedAt) / 1000), 0)
       : Math.max(Number(elapsed) || 0, 0)
   const overrun = prescribedSeconds > 0 ? Math.max(displayElapsed - prescribedSeconds, 0) : 0

@@ -1,5 +1,14 @@
 import { useCallback, useState } from 'react'
 
+function normalizeTimerStartedAt(value) {
+  if (value === null || value === undefined || value === '') {
+    return null
+  }
+
+  const numericValue = Number(value)
+  return Number.isFinite(numericValue) ? numericValue : null
+}
+
 export function useRestTimer() {
   const [elapsedSeconds, setElapsedSeconds] = useState(0)
   const [prescribedSeconds, setPrescribedSeconds] = useState(0)
@@ -7,7 +16,7 @@ export function useRestTimer() {
   const [timerStartedAt, setTimerStartedAt] = useState(null)
 
   const getSeconds = useCallback(() => {
-    if (!isRunning || !timerStartedAt) {
+    if (!isRunning || timerStartedAt === null) {
       return elapsedSeconds
     }
 
@@ -18,8 +27,8 @@ export function useRestTimer() {
     (nextPrescribedSeconds = 0, nextElapsedSeconds = 0, nextTimerStartedAt = null) => {
       const normalizedPrescribedSeconds = Math.max(Number(nextPrescribedSeconds) || 0, 0)
       const normalizedElapsedSeconds = Math.max(Number(nextElapsedSeconds) || 0, 0)
-      const normalizedTimerStartedAt = Number(nextTimerStartedAt)
-      const resolvedTimerStartedAt = Number.isFinite(normalizedTimerStartedAt)
+      const normalizedTimerStartedAt = normalizeTimerStartedAt(nextTimerStartedAt)
+      const resolvedTimerStartedAt = normalizedTimerStartedAt !== null
         ? normalizedTimerStartedAt
         : Date.now() - normalizedElapsedSeconds * 1000
 

@@ -272,6 +272,8 @@ function getInitialRestTimerState(initialDraft = null) {
     0,
   )
 
+  const normalizedTimerStartedAt = Number(restTimer.timerStartedAt)
+
   return {
     isVisible: Boolean(restTimer.isVisible ?? initialDraft?.showRestTimer) && targetSeconds > 0,
     targetSeconds,
@@ -281,7 +283,10 @@ function getInitialRestTimerState(initialDraft = null) {
       initialDraft?.currentRestTargetSource ??
       'program',
     rationale: restTimer.rationale ?? initialDraft?.currentRestRationale ?? '',
-    timerStartedAt: Number(restTimer.timerStartedAt) || null,
+    timerStartedAt:
+      Number.isFinite(normalizedTimerStartedAt) && normalizedTimerStartedAt > 0
+        ? normalizedTimerStartedAt
+        : null,
     pendingMetrics: restTimer.pendingMetrics ?? initialDraft?.pendingRestMetrics ?? null,
   }
 }
