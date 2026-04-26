@@ -78,9 +78,15 @@ function getHistoryLookbackDate() {
   return date.toISOString().slice(0, 10)
 }
 
+function omitLoggedSets(session) {
+  const nextSession = { ...session }
+  delete nextSession.logged_sets
+  return nextSession
+}
+
 async function fetchSessions(programId) {
   if (isDemoModeEnabled()) {
-    return getDemoHistorySessions(programId)
+    return getDemoHistorySessions(programId).map(omitLoggedSets)
   }
 
   const { data, error } = await supabase
@@ -100,19 +106,8 @@ async function fetchSessions(programId) {
           program_weeks!inner (
             program_phases!inner (
               program_id
-            )
           )
-        ),
-        logged_sets (
-          id,
-          set_number,
-          weight,
-          reps,
-          rest_prescribed_seconds,
-          rest_taken_seconds,
-          exercises (
-            name
-          )
+        )
         )
       `,
     )
@@ -125,15 +120,56 @@ async function fetchSessions(programId) {
     throw new Error(error.message)
   }
 
-  return (data ?? []).map((session) => ({
-    ...session,
-    logged_sets: [...(session.logged_sets ?? [])]
-      .map((set) => ({
-        ...set,
-        exercise_name: set?.exercises?.name ?? 'Exercise',
-      }))
-      .sort((left, right) => (left.set_number ?? 0) - (right.set_number ?? 0)),
-  }))
+  return data ?? []
+}
+
+async function fetchSessionSets(programId, sessionIds = []) {
+  if (!sessionIds.length) {
+    return new Map()
+  }
+
+  if (isDemoModeEnabled()) {
+    return getDemoHistorySessions(programId).reduce((map, session) => {
+      if (sessionIds.includes(session.id)) {
+        map.set(session.id, session.logged_sets ?? [])
+      }
+
+      return map
+    }, new Map())
+  }
+
+  const { data, error } = await supabase
+    .from('logged_sets')
+    .select(
+      `
+        id,
+        session_id,
+        set_number,
+        weight,
+        reps,
+        rest_prescribed_seconds,
+        rest_taken_seconds,
+        exercises (
+          name
+        )
+      `,
+    )
+    .in('session_id', sessionIds)
+    .order('set_number', { ascending: true })
+
+  if (error) {
+    throw new Error(error.message)
+  }
+
+  return (data ?? []).reduce((map, set) => {
+    const sessionSets = map.get(set.session_id) ?? []
+    sessionSets.push({
+      ...set,
+      exercise_name: set?.exercises?.name ?? 'Exercise',
+    })
+    map.set(set.session_id, sessionSets)
+    return map
+  }, new Map())
 }
 
 function HistoryMetric({ label, value, hint }) {
@@ -148,6 +184,8 @@ function HistoryMetric({ label, value, hint }) {
 
 function HistoryPage({ program }) {
   const [sessions, setSessions] = useState([])
+  const [setsBySessionId, setSetsBySessionId] = useState({})
+  const [setsLoading, setSetsLoading] = useState(false)
   const [loading, setLoading] = useState(true)
   const [selectedDateKey, setSelectedDateKey] = useState(null)
   const [currentMonth, setCurrentMonth] = useState(() => {
@@ -175,6 +213,7 @@ function HistoryPage({ program }) {
 
         if (!isCancelled) {
           setSessions(nextSessions)
+          setSetsBySessionId({})
           setSelectedDateKey((currentKey) => currentKey ?? nextSessions[0]?.date ?? null)
           setLoading(false)
         }
@@ -194,7 +233,14 @@ function HistoryPage({ program }) {
   }, [program?.id])
 
   const sessionMap = useMemo(() => getSessionMap(sessions), [sessions])
-  const selectedSessions = selectedDateKey ? sessionMap.get(selectedDateKey) ?? [] : []
+  const selectedSessions = useMemo(
+    () => (selectedDateKey ? sessionMap.get(selectedDateKey) ?? [] : []),
+    [selectedDateKey, sessionMap],
+  )
+  const selectedSessionIds = useMemo(
+    () => selectedSessions.map((session) => session.id).filter(Boolean),
+    [selectedSessions],
+  )
   const todayKey = getDateKey(new Date())
   const sessionsThisMonth = useMemo(
     () =>
@@ -215,6 +261,51 @@ function HistoryPage({ program }) {
     (sum, session) => sum + (Number(session.total_volume) || 0),
     0,
   )
+
+  useEffect(() => {
+    let isCancelled = false
+
+    async function loadSelectedSets() {
+      if (!selectedSessionIds.length || !program?.id) {
+        return
+      }
+
+      const missingSessionIds = selectedSessionIds.filter((sessionId) => !setsBySessionId[sessionId])
+
+      if (!missingSessionIds.length) {
+        return
+      }
+
+      setSetsLoading(true)
+
+      try {
+        const nextSetsBySessionId = await fetchSessionSets(program.id, missingSessionIds)
+
+        if (!isCancelled) {
+          setSetsBySessionId((current) => {
+            const next = { ...current }
+
+            nextSetsBySessionId.forEach((sets, sessionId) => {
+              next[sessionId] = sets
+            })
+
+            return next
+          })
+          setSetsLoading(false)
+        }
+      } catch {
+        if (!isCancelled) {
+          setSetsLoading(false)
+        }
+      }
+    }
+
+    void loadSelectedSets()
+
+    return () => {
+      isCancelled = true
+    }
+  }, [program?.id, selectedSessionIds, setsBySessionId])
 
   return (
     <section className="space-y-5 py-2 lg:py-1">
@@ -349,8 +440,14 @@ function HistoryPage({ program }) {
           </div>
         ) : selectedSessions.length ? (
           <section className="space-y-4">
+            {setsLoading ? (
+              <div className="rounded-[24px] border border-white/[0.05] bg-iron-900/70 px-4 py-3 text-[13px] text-zinc-500">
+                Loading selected session details…
+              </div>
+            ) : null}
+
             {selectedSessions.map((session) => {
-              const groupedSets = groupSetsByExercise(session.logged_sets)
+              const groupedSets = groupSetsByExercise(setsBySessionId[session.id] ?? [])
 
               return (
                 <article

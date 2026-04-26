@@ -9,8 +9,6 @@ import {
   X,
 } from 'lucide-react'
 import AppShell from './components/layout/AppShell'
-import BottomNav from './components/layout/BottomNav'
-import DesktopSidebar from './components/layout/DesktopSidebar.jsx'
 import Breadcrumb from './components/shared/Breadcrumb.jsx'
 import FooterBar from './components/shared/FooterBar.jsx'
 import Kbd from './components/shared/Kbd.jsx'
@@ -22,6 +20,7 @@ import { useWorkoutSession } from './hooks/useWorkoutSession.js'
 import { calculateRestDiscipline, calculateVolume } from './lib/calculations.js'
 import { buildProgressionSuggestion } from './lib/adaptiveProgram.js'
 import { getTargetReps, parseReps } from './lib/repParser.js'
+import { recordRuntimeEvent } from './lib/runtimeDiagnostics.js'
 import { matchesWorkoutRequest } from './lib/workoutRecovery.js'
 import {
   clearActiveWorkoutPointer,
@@ -45,10 +44,12 @@ import {
 const ActiveWorkoutPage = lazy(() => import('./pages/ActiveWorkoutPage.jsx'))
 const CustomWorkoutsPage = lazy(() => import('./pages/CustomWorkoutsPage.jsx'))
 const DashboardPage = lazy(() => import('./pages/DashboardPage.jsx'))
+const DesktopSidebar = lazy(() => import('./components/layout/DesktopSidebar.jsx'))
 const ExercisesPage = lazy(() => import('./pages/ExercisesPage.jsx'))
 const GlossaryPage = lazy(() => import('./pages/GlossaryPage.jsx'))
 const HistoryPage = lazy(() => import('./pages/HistoryPage.jsx'))
 const ModesPage = lazy(() => import('./pages/ModesPage.jsx'))
+const BottomNav = lazy(() => import('./components/layout/BottomNav.jsx'))
 const ProgramsPage = lazy(() => import('./pages/ProgramsPage.jsx'))
 const ProgressPage = lazy(() => import('./pages/ProgressPage.jsx'))
 const SettingsPage = lazy(() => import('./pages/SettingsPage.jsx'))
@@ -221,6 +222,51 @@ function getNavigationPage(page) {
   }
 
   return page
+}
+
+function isTypingTarget(target) {
+  if (!(target instanceof HTMLElement)) {
+    return false
+  }
+
+  if (target.isContentEditable) {
+    return true
+  }
+
+  const tagName = target.tagName?.toLowerCase()
+  return tagName === 'input' || tagName === 'textarea' || tagName === 'select'
+}
+
+function getInitialLargeViewport() {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+    return false
+  }
+
+  return window.matchMedia('(min-width: 1024px)').matches
+}
+
+function useIsLargeViewport() {
+  const [isLargeViewport, setIsLargeViewport] = useState(getInitialLargeViewport)
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+      return undefined
+    }
+
+    const mediaQuery = window.matchMedia('(min-width: 1024px)')
+    const handleChange = () => {
+      setIsLargeViewport(mediaQuery.matches)
+    }
+
+    handleChange()
+    mediaQuery.addEventListener('change', handleChange)
+
+    return () => {
+      mediaQuery.removeEventListener('change', handleChange)
+    }
+  }, [])
+
+  return isLargeViewport
 }
 
 function LoadingState() {
@@ -554,7 +600,9 @@ function App() {
     registerItems,
     setBreadcrumbSegments,
     setCurrentContext,
+    isCommandBarOpen,
   } = useCommandRegistry()
+  const isLargeViewport = useIsLargeViewport()
   const {
     program: summaryProgram,
     loading: summaryProgramLoading,
@@ -902,6 +950,39 @@ function App() {
   useEffect(() => {
     setCurrentContext(currentContextId)
   }, [currentContextId, setCurrentContext])
+
+  useEffect(() => {
+    function handleGlobalCommandShortcut(event) {
+      if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== 'k') {
+        return
+      }
+
+      if (isTypingTarget(event.target)) {
+        event.preventDefault()
+        openCommandBar()
+        return
+      }
+
+      event.preventDefault()
+      openCommandBar()
+    }
+
+    window.addEventListener('keydown', handleGlobalCommandShortcut)
+
+    return () => {
+      window.removeEventListener('keydown', handleGlobalCommandShortcut)
+    }
+  }, [openCommandBar])
+
+  useEffect(() => {
+    recordRuntimeEvent('route-state', {
+      context: currentContextId,
+      hasActiveWorkout: Boolean(activeWorkout),
+      hasPhaseReport: Boolean(phaseCompletionReport),
+      hasSessionSummary: Boolean(sessionSummary),
+      page,
+    })
+  }, [activeWorkout, currentContextId, page, phaseCompletionReport, sessionSummary])
 
   useEffect(() => {
     if (activeWorkout) {
@@ -1757,27 +1838,37 @@ function App() {
     }
   }
 
+  const sidebarSlot =
+    showAppChrome && isLargeViewport ? (
+      <Suspense fallback={null}>
+        <DesktopSidebar
+          activePage={getNavigationPage(page)}
+          onNavigate={navigateToPage}
+          onCommandOpen={openCommandBar}
+          program={program}
+          progress={progress}
+        />
+      </Suspense>
+    ) : null
+
+  const mobileNavSlot =
+    showAppChrome && !isLargeViewport ? (
+      <Suspense fallback={null}>
+        <BottomNav
+          activePage={getNavigationPage(page)}
+          onNavigate={navigateToPage}
+          onCommandOpen={openCommandBar}
+        />
+      </Suspense>
+    ) : null
+
   return (
     <>
       <AppShell
         showChrome={showAppChrome}
         headerSlot={showAppChrome ? <Breadcrumb /> : null}
-        sidebar={
-          <DesktopSidebar
-            activePage={getNavigationPage(page)}
-            onNavigate={navigateToPage}
-            onCommandOpen={openCommandBar}
-            program={program}
-            progress={progress}
-          />
-        }
-        mobileNav={
-          <BottomNav
-            activePage={getNavigationPage(page)}
-            onNavigate={navigateToPage}
-            onCommandOpen={openCommandBar}
-          />
-        }
+        sidebar={sidebarSlot}
+        mobileNav={mobileNavSlot}
       >
         <Suspense fallback={<PageFallback />}>{renderCurrentPage()}</Suspense>
       </AppShell>
@@ -1801,9 +1892,11 @@ function App() {
         onDiscard={discardRecoverableWorkout}
         onClose={resolveRecoveryPrompt}
       />
-      <Suspense fallback={null}>
-        <CommandBar />
-      </Suspense>
+      {isCommandBarOpen ? (
+        <Suspense fallback={null}>
+          <CommandBar />
+        </Suspense>
+      ) : null}
     </>
   )
 }

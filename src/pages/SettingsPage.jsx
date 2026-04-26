@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
-import { BookOpenText } from 'lucide-react'
+import { BookOpenText, RefreshCw } from 'lucide-react'
 import * as XLSX from 'xlsx'
 import PlateCalculator from '../components/shared/PlateCalculator.jsx'
 import {
   getStoredPreferences,
   writeStoredPreferences,
 } from '../lib/preferences.js'
+import { readRuntimeDiagnostics } from '../lib/runtimeDiagnostics.js'
 import { isConfigured, supabase } from '../lib/supabase.js'
 
 const DEFAULT_EQUIPMENT = [
@@ -61,12 +62,30 @@ function SettingsMetric({ label, value, hint }) {
   )
 }
 
+function formatDiagnosticTime(value) {
+  if (!value) {
+    return '--'
+  }
+
+  return new Intl.DateTimeFormat('en-US', {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  }).format(new Date(value))
+}
+
+function formatMemoryMb(value) {
+  const numericValue = Number(value)
+  return Number.isFinite(numericValue) ? `${Math.round(numericValue / 1024 / 1024)} MB` : '--'
+}
+
 function SettingsPage({ program, progress, updateProgress, onNavigate, onDataReset }) {
   const [equipment, setEquipment] = useState([])
   const [selectedBarId, setSelectedBarId] = useState('')
   const [preferences, setPreferences] = useState(() => ({
     ...getStoredPreferences(),
   }))
+  const [diagnostics, setDiagnostics] = useState(() => readRuntimeDiagnostics())
   const [isPlateCalculatorOpen, setIsPlateCalculatorOpen] = useState(false)
   const [loading, setLoading] = useState(true)
   const bars = useMemo(
@@ -115,6 +134,11 @@ function SettingsPage({ program, progress, updateProgress, onNavigate, onDataRes
   useEffect(() => {
     writeStoredPreferences(preferences)
   }, [preferences])
+
+  const recentDiagnosticEvents = useMemo(
+    () => [...(diagnostics.events ?? [])].slice(-8).reverse(),
+    [diagnostics.events],
+  )
 
   async function saveEquipment(nextEquipment = equipment) {
     const removableIds = nextEquipment
@@ -543,6 +567,56 @@ function SettingsPage({ program, progress, updateProgress, onNavigate, onDataRes
               >
                 Export (.xlsx)
               </button>
+            </section>
+
+            <section className="rounded-[28px] border border-white/[0.04] bg-iron-900/75 p-5">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-zinc-200">Runtime Diagnostics</p>
+                  <p className="mt-1 text-[12px] text-zinc-500">
+                    {recentDiagnosticEvents[0]?.type ?? 'No events yet'}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-white/[0.04] bg-iron-950 text-zinc-400 transition hover:border-gold/30 hover:text-zinc-100"
+                  onClick={() => setDiagnostics(readRuntimeDiagnostics())}
+                  aria-label="Refresh runtime diagnostics"
+                >
+                  <RefreshCw className="h-4 w-4" strokeWidth={1.8} />
+                </button>
+              </div>
+
+              <div className="mt-4 space-y-2">
+                {recentDiagnosticEvents.length ? (
+                  recentDiagnosticEvents.map((event, index) => (
+                    <div
+                      key={`${event.timestamp}-${event.type}-${index}`}
+                      className="rounded-[18px] border border-white/[0.04] bg-iron-950/65 px-3 py-3"
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="text-[12px] font-semibold text-zinc-200">{event.type}</p>
+                        <p className="font-mono text-[11px] text-zinc-600">
+                          {formatDiagnosticTime(event.timestamp)}
+                        </p>
+                      </div>
+                      <p className="mt-1 text-[11px] text-zinc-500">
+                        Heap {formatMemoryMb(event.memory?.usedJsHeap)} /{' '}
+                        {formatMemoryMb(event.memory?.jsHeapLimit)}
+                      </p>
+                      {event.payload?.message ? (
+                        <p className="mt-2 break-words text-[11px] leading-5 text-coral">
+                          {event.payload.message}
+                        </p>
+                      ) : null}
+                    </div>
+                  ))
+                ) : (
+                  <div className="rounded-[18px] border border-white/[0.04] bg-iron-950/65 px-3 py-3 text-[12px] text-zinc-500">
+                    Waiting for runtime events.
+                  </div>
+                )}
+              </div>
             </section>
 
             <section className="rounded-[28px] border border-coral/30 bg-iron-900/75 p-5">

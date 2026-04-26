@@ -107,20 +107,15 @@ function PlateCalculator({
 
   const barOptions = useMemo(() => getBarOptions(equipment), [equipment])
   const plateOptions = useMemo(() => getPlateOptions(equipment), [equipment])
+  const resolvedSelectedBarId = selectedBarId || barOptions[0]?.id || ''
   const selectedBar = useMemo(
-    () => barOptions.find((option) => option.id === selectedBarId) ?? barOptions[0] ?? null,
-    [barOptions, selectedBarId],
+    () => barOptions.find((option) => option.id === resolvedSelectedBarId) ?? null,
+    [barOptions, resolvedSelectedBarId],
   )
   const platePlan = useMemo(
     () => buildPlatePlan(targetWeight, selectedBar?.weight ?? 20, plateOptions),
     [plateOptions, selectedBar?.weight, targetWeight],
   )
-
-  useEffect(() => {
-    if (!selectedBarId && barOptions[0]?.id) {
-      setSelectedBarId(barOptions[0].id)
-    }
-  }, [barOptions, selectedBarId])
 
   if (!isOpen) {
     return null

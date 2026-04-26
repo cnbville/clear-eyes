@@ -25,6 +25,10 @@ export default defineConfig({
     ],
   },
   build: {
+    // Crash prevention beats speculative warm loading for this app. Let chunks
+    // load when the route/feature is actually opened instead of asking mobile
+    // browsers to stage every dependency up front.
+    modulePreload: false,
     // Split the biggest third-party chunks so they can be cached independently
     // and don't force a re-download of the whole app on a small update.
     rollupOptions: {

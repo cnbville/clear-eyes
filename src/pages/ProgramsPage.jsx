@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { Plus, Sparkles, Upload } from 'lucide-react'
 import PhaseRoadmap from '../components/programs/PhaseRoadmap.jsx'
 import PdfUpload from '../components/programs/PdfUpload.jsx'
@@ -42,7 +42,6 @@ function ProgramsPage({ program, progress, onProgramSaved }) {
     tone: 'neutral',
     message: '',
   })
-  const [isRefreshing, setIsRefreshing] = useState(false)
   const roadmapRef = useRef(null)
 
   const currentPhase = useMemo(
@@ -98,17 +97,6 @@ function ProgramsPage({ program, progress, onProgramSaved }) {
     footerActions,
   })
 
-  useEffect(() => {
-    if (program && isRefreshing) {
-      setShowUploader(false)
-      setIsRefreshing(false)
-      setStatus({
-        tone: 'success',
-        message: 'Program imported and activated.',
-      })
-    }
-  }, [program, isRefreshing])
-
   async function handleConfirmImport(editedData) {
     if (!isConfigured) {
       const result = {
@@ -142,10 +130,9 @@ function ProgramsPage({ program, progress, onProgramSaved }) {
 
     setExtractedData(null)
     setShowUploader(false)
-    setIsRefreshing(true)
     setStatus({
-      tone: 'loading',
-      message: 'Program saved. Refreshing active program...',
+      tone: 'success',
+      message: 'Program imported and activated.',
     })
 
     await onProgramSaved?.()
@@ -258,13 +245,7 @@ function ProgramsPage({ program, progress, onProgramSaved }) {
           </section>
 
           <div className="space-y-4">
-            {isRefreshing ? (
-              <div className="rounded-[28px] border border-white/[0.04] bg-iron-800 p-6 text-sm text-zinc-500">
-                Refreshing your newly imported program...
-              </div>
-            ) : (
-              <PdfUpload onExtracted={setExtractedData} />
-            )}
+            <PdfUpload onExtracted={setExtractedData} />
           </div>
         </div>
       </section>
@@ -395,7 +376,7 @@ function ProgramsPage({ program, progress, onProgramSaved }) {
               {[
                 ['Cycle Length', `${(program.phases ?? []).reduce((sum, phase) => sum + (phase.num_weeks ?? 0), 0)} weeks`],
                 ['Current Position', `Week ${progress?.current_week ?? 1} · Day ${progress?.current_day ?? 1}`],
-                ['Upload Status', isRefreshing ? 'Refreshing' : 'Stable'],
+                ['Upload Status', 'Stable'],
               ].map(([label, value]) => (
                 <div
                   key={label}

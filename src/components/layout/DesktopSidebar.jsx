@@ -10,7 +10,6 @@ import {
   Sparkles,
 } from 'lucide-react'
 import Kbd from '../shared/Kbd.jsx'
-import GlossaryTerm from '../shared/GlossaryTerm.jsx'
 
 const navigationItems = [
   { id: 'home', label: 'Modes', icon: Home },
@@ -60,7 +59,7 @@ function DesktopSidebar({ activePage, onNavigate, onCommandOpen, program, progre
           IRON
         </p>
         <h1 className="relative mt-3 text-[24px] font-black tracking-[-0.05em] text-zinc-50">
-          <GlossaryTerm term="workout_os">Workout OS</GlossaryTerm>
+          Workout OS
         </h1>
         <p className="relative mt-2 max-w-[16rem] text-[12px] leading-5 text-zinc-500">
           Matte-black command space for structured program work and custom-built training days.
