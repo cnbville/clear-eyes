@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'react'
-import { getStoredPreferences } from '../../lib/preferences.js'
 
 function formatSeconds(totalSeconds) {
   const normalizedSeconds = Math.max(Number(totalSeconds) || 0, 0)
@@ -58,7 +57,6 @@ function RestTimer({
   onSkip,
   onAdjust,
 }) {
-  const tickIntervalMs = getStoredPreferences().lowMemoryMode === false ? 1000 : 5000
   const [now, setNow] = useState(() => Date.now())
   const hasVibratedRef = useRef(false)
   const displayElapsed =
@@ -79,12 +77,12 @@ function RestTimer({
 
     const intervalId = window.setInterval(() => {
       setNow(Date.now())
-    }, tickIntervalMs)
+    }, 1000)
 
     return () => {
       window.clearInterval(intervalId)
     }
-  }, [isRunning, tickIntervalMs])
+  }, [isRunning])
 
   useEffect(() => {
     if (!isRunning || prescribedSeconds <= 0 || displayElapsed < prescribedSeconds) {

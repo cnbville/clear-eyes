@@ -55,18 +55,17 @@ function formatDuration(totalSeconds) {
 // Self-contained ticking component so the 1s setInterval only re-renders the
 // elapsed-time display, not the entire ActiveWorkoutPage tree.
 function SessionElapsed({ startedAt, className }) {
-  const tickIntervalMs = getStoredPreferences().lowMemoryMode === false ? 1000 : 15000
   const [now, setNow] = useState(() => Date.now())
 
   useEffect(() => {
     const intervalId = window.setInterval(() => {
       setNow(Date.now())
-    }, tickIntervalMs)
+    }, 1000)
 
     return () => {
       window.clearInterval(intervalId)
     }
-  }, [tickIntervalMs])
+  }, [])
 
   const resolvedStart = Number(startedAt) || now
   const elapsedSeconds = Math.max(Math.floor((now - resolvedStart) / 1000), 0)
