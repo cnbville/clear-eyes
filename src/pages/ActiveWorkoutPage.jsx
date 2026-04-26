@@ -660,8 +660,14 @@ function ActiveWorkoutPage({
   }
 
   function beginRest(restRecommendation) {
+    const fallbackRestSeconds = currentExercise ? getExerciseRestSeconds(currentExercise) : null
     const normalizedRestSeconds = Math.max(
-      Number(restRecommendation?.targetSeconds ?? restRecommendation) || 0,
+      Number(
+        restRecommendation?.targetSeconds ??
+          restRecommendation ??
+          fallbackRestSeconds ??
+          60,
+      ) || 0,
       0,
     )
 
@@ -672,7 +678,9 @@ function ActiveWorkoutPage({
 
     setPendingRestMetrics(null)
     setCurrentRestBaseline(
-      Number(restRecommendation?.baselineSeconds) || normalizedRestSeconds,
+      Number(restRecommendation?.baselineSeconds) ||
+        fallbackRestSeconds ||
+        normalizedRestSeconds,
     )
     setCurrentRestPrescribed(normalizedRestSeconds)
     setCurrentRestTargetSource(restRecommendation?.restTargetSource ?? 'program')
@@ -714,6 +722,19 @@ function ActiveWorkoutPage({
     setCurrentRestTargetSource('manual')
     setCurrentRestRationale('Adjusted manually for this session.')
     setTarget(nextPrescribedSeconds)
+  }
+
+  function handleToggleRestTimer() {
+    if (showRestTimer) {
+      dismissRestTimer({ preserve: true })
+      return
+    }
+
+    if (!currentExercise) {
+      return
+    }
+
+    beginRest(getRestRecommendation(currentExercise))
   }
 
   function handleFinishWorkout() {
@@ -991,18 +1012,8 @@ function ActiveWorkoutPage({
       shortcut: 'Enter',
     },
     {
-      action: () => {
-        if (showRestTimer) {
-          dismissRestTimer({ preserve: true })
-          return
-        }
-
-        if (!currentExercise) {
-          return
-        }
-
-        beginRest(getRestRecommendation(currentExercise))
-      },
+      action: handleToggleRestTimer,
+      allowInInput: true,
       disabled: !currentExercise,
       displayShortcut: 'Space',
       id: 'workout-rest-timer',
@@ -1448,6 +1459,17 @@ function ActiveWorkoutPage({
                   </button>
                   <button
                     type="button"
+                    className="inline-flex items-center justify-center gap-2 rounded-2xl border border-white/[0.04] bg-iron-950 px-4 py-3 text-[13px] font-semibold text-zinc-300 transition hover:border-gold/30 hover:text-zinc-50"
+                    onClick={handleToggleRestTimer}
+                    disabled={!currentExercise}
+                  >
+                    <span>{showRestTimer ? 'Skip Rest' : 'Rest Timer'}</span>
+                    <Kbd className="border-white/[0.08] bg-white/[0.04] text-zinc-300">
+                      Space
+                    </Kbd>
+                  </button>
+                  <button
+                    type="button"
                     className="inline-flex items-center justify-center gap-2 rounded-2xl bg-gold px-4 py-3 text-[13px] font-extrabold text-iron-900 transition hover:bg-gold-light disabled:cursor-not-allowed disabled:opacity-50"
                     onClick={allExercisesComplete ? handleFinishWorkout : handleAdvanceExercise}
                     disabled={!sessionExercises.length}
@@ -1526,18 +1548,7 @@ function ActiveWorkoutPage({
           <button
             type="button"
             className="min-h-[48px] rounded-xl border border-white/[0.05] bg-iron-800 px-4 py-3 text-[13px] font-semibold text-zinc-100 transition hover:border-gold/30"
-            onClick={() => {
-              if (showRestTimer) {
-                dismissRestTimer({ preserve: true })
-                return
-              }
-
-              if (!currentExercise) {
-                return
-              }
-
-              beginRest(getRestRecommendation(currentExercise))
-            }}
+            onClick={handleToggleRestTimer}
             disabled={!currentExercise}
           >
             {mobileRestLabel}
