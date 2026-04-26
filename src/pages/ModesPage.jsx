@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   ArrowRight,
   CalendarDays,
@@ -149,14 +149,27 @@ function ModesPage({
     safeProgress.weekly_target ??
     program?.days_per_week ??
     0
+  const programPrimaryLabel = program && currentDay
+    ? 'Enter Program Mode'
+    : program
+      ? 'Open Program Mode'
+      : 'Import Program'
+  const handleProgramPrimaryAction = useCallback(() => {
+    if (program && currentDay) {
+      onStartProgramWorkout?.()
+      return
+    }
+
+    onNavigate?.(program ? 'program' : 'programs')
+  }, [currentDay, onNavigate, onStartProgramWorkout, program])
 
   const footerActions = useMemo(
     () => [
       {
-        action: program && currentDay ? onStartProgramWorkout : () => onNavigate?.('programs'),
+        action: handleProgramPrimaryAction,
         displayShortcut: '↵',
         id: 'modes-primary',
-        label: program && currentDay ? 'Start Program' : 'Load Program',
+        label: programPrimaryLabel,
         shortcut: 'Enter',
       },
       {
@@ -174,7 +187,12 @@ function ModesPage({
         shortcut: 'Mod+E',
       },
     ],
-    [currentDay, onCreateCustomWorkout, onNavigate, onStartProgramWorkout, program],
+    [
+      handleProgramPrimaryAction,
+      onCreateCustomWorkout,
+      onNavigate,
+      programPrimaryLabel,
+    ],
   )
 
   useInteractionContext('home', {
@@ -311,9 +329,9 @@ function ModesPage({
             <button
               type="button"
               className="inline-flex items-center gap-2 rounded-full bg-gold px-5 py-3 text-[12px] font-extrabold uppercase tracking-[0.18em] text-iron-900 transition hover:bg-gold-light"
-              onClick={() => (program && currentDay ? onStartProgramWorkout?.() : onNavigate?.('programs'))}
+              onClick={handleProgramPrimaryAction}
             >
-              <span>{program && currentDay ? 'Enter Program Mode' : 'Import Program'}</span>
+              <span>{programPrimaryLabel}</span>
               <ArrowRight className="h-4 w-4" strokeWidth={2} />
             </button>
           }

@@ -1,9 +1,17 @@
+import { useEffect, useRef, useState } from 'react'
+
 function formatSeconds(totalSeconds) {
   const normalizedSeconds = Math.max(Number(totalSeconds) || 0, 0)
   const minutes = Math.floor(normalizedSeconds / 60)
   const seconds = normalizedSeconds % 60
 
   return `${minutes}:${seconds.toString().padStart(2, '0')}`
+}
+
+function vibrateOnComplete() {
+  if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
+    navigator.vibrate([120, 60, 160])
+  }
 }
 
 function getTimerTone(elapsed, prescribedSeconds) {
@@ -44,16 +52,52 @@ function RestTimer({
   rationale = '',
   isRunning = false,
   elapsed = 0,
-  overrun = 0,
+  timerStartedAt = null,
   phaseColor = '#c9a227',
   onSkip,
   onAdjust,
 }) {
-  const tone = getTimerTone(elapsed, prescribedSeconds)
+  const [now, setNow] = useState(() => Date.now())
+  const hasVibratedRef = useRef(false)
+  const displayElapsed =
+    isRunning && timerStartedAt
+      ? Math.max(Math.floor((now - timerStartedAt) / 1000), 0)
+      : Math.max(Number(elapsed) || 0, 0)
+  const overrun = prescribedSeconds > 0 ? Math.max(displayElapsed - prescribedSeconds, 0) : 0
+  const tone = getTimerTone(displayElapsed, prescribedSeconds)
   const resolvedBaselineSeconds = baselineSeconds || prescribedSeconds
   const progressPercentage = prescribedSeconds
-    ? Math.min((elapsed / prescribedSeconds) * 100, 100)
+    ? Math.min((displayElapsed / prescribedSeconds) * 100, 100)
     : 0
+
+  useEffect(() => {
+    if (!isRunning) {
+      return undefined
+    }
+
+    const intervalId = window.setInterval(() => {
+      setNow(Date.now())
+    }, 1000)
+
+    return () => {
+      window.clearInterval(intervalId)
+    }
+  }, [isRunning])
+
+  useEffect(() => {
+    if (!isRunning || prescribedSeconds <= 0 || displayElapsed < prescribedSeconds) {
+      return
+    }
+
+    if (!hasVibratedRef.current) {
+      hasVibratedRef.current = true
+      vibrateOnComplete()
+    }
+  }, [displayElapsed, isRunning, prescribedSeconds])
+
+  useEffect(() => {
+    hasVibratedRef.current = false
+  }, [prescribedSeconds, timerStartedAt])
 
   return (
     <section
@@ -95,7 +139,7 @@ function RestTimer({
 
       <div className="mt-3 flex items-end justify-between gap-4">
         <p className={`font-mono text-[32px] font-bold ${tone.textClassName}`}>
-          {formatSeconds(elapsed)}
+          {formatSeconds(displayElapsed)}
         </p>
         <p className="font-mono text-[13px] text-zinc-500">
           / {formatSeconds(prescribedSeconds)}

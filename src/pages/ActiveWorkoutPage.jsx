@@ -387,12 +387,12 @@ function ActiveWorkoutPage({
   const sessionPreferences = useMemo(() => getStoredPreferences(), [])
   const {
     seconds,
+    getSeconds,
     isRunning,
     start,
     resume,
     setTarget,
     reset,
-    overrunSeconds,
     timerStartedAt,
   } = useRestTimer()
 
@@ -644,7 +644,7 @@ function ActiveWorkoutPage({
       setPendingRestMetrics({
         rest_prescribed_seconds: currentRestPrescribed,
         rest_baseline_seconds: currentRestBaseline || currentRestPrescribed,
-        rest_taken_seconds: seconds,
+        rest_taken_seconds: getSeconds(),
         rest_target_source: currentRestTargetSource ?? 'program',
       })
     } else if (!preserve) {
@@ -775,7 +775,7 @@ function ActiveWorkoutPage({
       (showRestTimer && currentRestPrescribed > 0
         ? {
             rest_prescribed_seconds: currentRestPrescribed,
-            rest_taken_seconds: seconds,
+            rest_taken_seconds: getSeconds(),
           }
         : null)
 
@@ -1383,7 +1383,7 @@ function ActiveWorkoutPage({
                 rationale={currentRestRationale}
                 isRunning={isRunning}
                 elapsed={seconds}
-                overrun={overrunSeconds}
+                timerStartedAt={timerStartedAt}
                 phaseColor={phaseInfo?.phaseColor ?? '#c9a227'}
                 onSkip={() => dismissRestTimer({ preserve: true })}
                 onAdjust={handleAdjustRest}

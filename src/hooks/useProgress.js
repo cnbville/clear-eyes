@@ -24,6 +24,7 @@ async function fetchActiveProgramId() {
 }
 
 export function useProgress(program = null) {
+  const programId = program?.id ?? null
   const [progress, setProgress] = useState(null)
   const [loading, setLoading] = useState(true)
   const [reloadToken, setReloadToken] = useState(0)
@@ -32,7 +33,7 @@ export function useProgress(program = null) {
     let isCancelled = false
 
     async function loadProgress() {
-      if (isDemoModeEnabled() && program?.id) {
+      if (isDemoModeEnabled() && programId) {
         if (!isCancelled) {
           setProgress(readDemoProgress(program))
           setLoading(false)
@@ -53,7 +54,7 @@ export function useProgress(program = null) {
       setLoading(true)
 
       try {
-        const activeProgramId = program?.id ?? (await fetchActiveProgramId())
+        const activeProgramId = programId ?? (await fetchActiveProgramId())
 
         if (!activeProgramId) {
           if (!isCancelled) {
@@ -92,7 +93,7 @@ export function useProgress(program = null) {
     return () => {
       isCancelled = true
     }
-  }, [program, reloadToken])
+  }, [program, programId, reloadToken])
 
   useEffect(() => {
     function handleProgramChanged() {

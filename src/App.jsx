@@ -73,28 +73,6 @@ function PageFallback() {
   )
 }
 
-function getUniqueExercises(program) {
-  const exerciseMap = new Map()
-
-  ;(program?.phases ?? []).forEach((phase) => {
-    ;(phase.weeks ?? []).forEach((week) => {
-      ;(week.days ?? []).forEach((day) => {
-        ;(day.exercises ?? []).forEach((exercise) => {
-          const key = exercise.exercise_id ?? exercise.name
-
-          if (!exerciseMap.has(key)) {
-            exerciseMap.set(key, exercise)
-          }
-        })
-      })
-    })
-  })
-
-  return Array.from(exerciseMap.values()).sort((left, right) =>
-    (left.name ?? '').localeCompare(right.name ?? ''),
-  )
-}
-
 function getCurrentPhase(program, progress) {
   if (!program?.phases?.length) {
     return null
@@ -464,35 +442,6 @@ function SettingsView({ program }) {
   )
 }
 
-function LibraryView({ program }) {
-  const exercises = getUniqueExercises(program)
-
-  return (
-    <section className="space-y-4 py-6">
-      <header>
-        <p className="font-mono text-xs uppercase tracking-[0.36em] text-zinc-500">Library</p>
-        <h1 className="mt-3 text-[28px] font-bold tracking-[-0.04em] text-zinc-50">
-          Exercise index
-        </h1>
-      </header>
-
-      <div className="space-y-3">
-        {exercises.map((exercise) => (
-          <div
-            key={exercise.exercise_id ?? exercise.name}
-            className="rounded-2xl border border-iron-600/60 bg-iron-800 px-4 py-4"
-          >
-            <p className="text-sm font-semibold text-zinc-100">{exercise.name}</p>
-            <p className="mt-1 text-xs text-zinc-500">
-              {exercise.muscle || 'other'} · {exercise.equipment || 'other'}
-            </p>
-          </div>
-        ))}
-      </div>
-    </section>
-  )
-}
-
 function formatRecoveryTimestamp(value) {
   if (!value) {
     return 'recently'
@@ -616,7 +565,7 @@ function App() {
     activeWorkout?.source === 'program' ||
       sessionSummary?.source === 'program' ||
       phaseCompletionReport ||
-      ['home', 'program', 'progress', 'history', 'programs'].includes(page),
+      ['program', 'progress', 'programs'].includes(page),
   )
   const {
     program: runtimeProgram,
@@ -659,7 +608,6 @@ function App() {
     updateProgress,
   })
   const showAppChrome = !activeWorkout && !sessionSummary && !phaseCompletionReport
-  const uniqueExercises = useMemo(() => getUniqueExercises(program), [program])
   const currentPhase = useMemo(() => getCurrentPhase(program, progress), [program, progress])
   const currentDay = useMemo(
     () => currentSlot?.day ?? getCurrentDay(program, progress),
@@ -1177,21 +1125,6 @@ function App() {
     lastPrToastSessionRef.current = sessionSummary.sessionId
   }, [sessionSummary, showToast])
 
-  // Memoized once per uniqueExercises change so search items stay stable while
-  // the surrounding app state changes.
-  const exerciseItems = useMemo(
-    () =>
-      uniqueExercises.map((exercise) => ({
-        action: () => navigateToPage('library'),
-        category: 'Exercises',
-        id: `exercise-${exercise.exercise_id ?? exercise.name}`,
-        keywords: [exercise.muscle, exercise.equipment],
-        label: exercise.name,
-        subtitle: `${exercise.muscle ?? 'other'} · ${exercise.equipment ?? 'other'}`,
-      })),
-    [uniqueExercises, navigateToPage],
-  )
-
   // Stable list of "view" navigation commands — no volatile deps so this
   // allocates exactly once for the lifetime of the component.
   const viewItems = useMemo(
@@ -1266,7 +1199,7 @@ function App() {
         id: 'action-search',
         label: 'Open Command Bar',
         shortcut: '⌘K',
-        subtitle: 'Search exercises, views, and actions',
+        subtitle: 'Search views and actions',
       },
       {
         action: () => openWorkoutBuilder(),
@@ -1311,7 +1244,7 @@ function App() {
       })
     }
 
-    const cleanup = registerItems('app-global', [...globalItems, ...exerciseItems])
+    const cleanup = registerItems('app-global', globalItems)
     return cleanup
   }, [
     activeWorkout,
@@ -1320,7 +1253,6 @@ function App() {
     activeSession?.slot,
     currentDay,
     currentPhase,
-    exerciseItems,
     handleStartWorkout,
     progress?.current_phase,
     progress?.current_week,
