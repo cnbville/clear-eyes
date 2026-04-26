@@ -3,7 +3,36 @@ import { getDemoLibraryData, isDemoModeEnabled } from '../lib/demoState.js'
 import { getExerciseNotesByIds } from '../services/exerciseNoteService.js'
 import { isConfigured, supabase } from '../lib/supabase.js'
 
+const EXERCISE_DETAILS_CACHE_LIMIT = 24
 const exerciseDetailsCache = new Map()
+
+function getCachedExerciseDetails(exerciseId) {
+  if (!exerciseId || !exerciseDetailsCache.has(exerciseId)) {
+    return null
+  }
+
+  const cachedValue = exerciseDetailsCache.get(exerciseId)
+  exerciseDetailsCache.delete(exerciseId)
+  exerciseDetailsCache.set(exerciseId, cachedValue)
+  return cachedValue
+}
+
+function setCachedExerciseDetails(exerciseId, details) {
+  if (!exerciseId) {
+    return
+  }
+
+  if (exerciseDetailsCache.has(exerciseId)) {
+    exerciseDetailsCache.delete(exerciseId)
+  }
+
+  exerciseDetailsCache.set(exerciseId, details)
+
+  while (exerciseDetailsCache.size > EXERCISE_DETAILS_CACHE_LIMIT) {
+    const oldestKey = exerciseDetailsCache.keys().next().value
+    exerciseDetailsCache.delete(oldestKey)
+  }
+}
 
 function buildEmptyDetails() {
   return {
@@ -40,13 +69,15 @@ async function fetchExerciseDetails(exerciseId) {
     return buildEmptyDetails()
   }
 
-  if (exerciseDetailsCache.has(exerciseId)) {
-    return exerciseDetailsCache.get(exerciseId)
+  const cachedDetails = getCachedExerciseDetails(exerciseId)
+
+  if (cachedDetails) {
+    return cachedDetails
   }
 
   if (isDemoModeEnabled()) {
     const demoDetails = buildDemoExerciseDetails(exerciseId)
-    exerciseDetailsCache.set(exerciseId, demoDetails)
+    setCachedExerciseDetails(exerciseId, demoDetails)
     return demoDetails
   }
 
@@ -103,7 +134,7 @@ async function fetchExerciseDetails(exerciseId) {
     timesPerformed: countPerformedSessions(historyRows ?? []),
   }
 
-  exerciseDetailsCache.set(exerciseId, details)
+  setCachedExerciseDetails(exerciseId, details)
   return details
 }
 
@@ -119,7 +150,7 @@ export function clearExerciseDetailsCache(exerciseId = null) {
 export function useExerciseDetails(exerciseId, enabled = false) {
   const [state, setState] = useState(() => ({
     ...buildEmptyDetails(),
-    loading: Boolean(enabled && exerciseId && !exerciseDetailsCache.has(exerciseId)),
+    loading: Boolean(enabled && exerciseId && !getCachedExerciseDetails(exerciseId)),
     error: null,
   }))
 
@@ -139,7 +170,7 @@ export function useExerciseDetails(exerciseId, enabled = false) {
         return
       }
 
-      const cachedValue = exerciseDetailsCache.get(exerciseId)
+      const cachedValue = getCachedExerciseDetails(exerciseId)
 
       if (cachedValue) {
         if (!isCancelled) {

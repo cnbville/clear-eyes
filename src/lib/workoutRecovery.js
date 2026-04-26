@@ -71,6 +71,31 @@ export function normalizeWorkoutDraftData(draftData = null) {
   }
 }
 
+function toDraftTimestamp(value) {
+  if (!value) {
+    return 0
+  }
+
+  const timestamp = new Date(value).getTime()
+  return Number.isFinite(timestamp) ? timestamp : 0
+}
+
+export function resolvePreferredWorkoutDraft(remoteDraft = null, localDraft = null) {
+  const normalizedRemoteDraft = normalizeWorkoutDraftData(remoteDraft?.draft_data ?? null)
+  const normalizedLocalDraft = normalizeWorkoutDraftData(localDraft?.draftData ?? null)
+  const remoteUpdatedAt = remoteDraft?.updated_at ?? null
+  const localUpdatedAt = localDraft?.updatedAt ?? null
+  const shouldUseLocalDraft =
+    Boolean(normalizedLocalDraft) &&
+    (!normalizedRemoteDraft || toDraftTimestamp(localUpdatedAt) >= toDraftTimestamp(remoteUpdatedAt))
+
+  return {
+    draftData: shouldUseLocalDraft ? normalizedLocalDraft : normalizedRemoteDraft,
+    updatedAt: shouldUseLocalDraft ? localUpdatedAt : remoteUpdatedAt,
+    source: shouldUseLocalDraft ? 'local' : normalizedRemoteDraft ? 'remote' : null,
+  }
+}
+
 function toSessionTimestamp(value, fallback = Date.now()) {
   if (!value) {
     return fallback
@@ -100,6 +125,7 @@ function getFallbackPhaseInfo(session, snapshot) {
 export function buildActiveWorkoutState({
   session,
   draft = null,
+  localDraft = null,
   readiness = null,
   snapshot = null,
   remoteDraftDetected = false,
@@ -109,7 +135,8 @@ export function buildActiveWorkoutState({
   }
 
   const resolvedSnapshot = snapshot ?? session?.session_snapshot ?? {}
-  const draftData = normalizeWorkoutDraftData(draft?.draft_data ?? null)
+  const resolvedDraft = resolvePreferredWorkoutDraft(draft, localDraft)
+  const draftData = resolvedDraft.draftData
   const startedAt =
     draftData?.startedAt ??
     session?.started_at ??
@@ -136,8 +163,8 @@ export function buildActiveWorkoutState({
       resolvedSnapshot?.slotDayNumber ??
       resolvedSnapshot?.day?.day_number ??
       null,
-    draftUpdatedAt: draft?.updated_at ?? null,
-    updatedAt: draft?.updated_at ?? session?.started_at ?? null,
+    draftUpdatedAt: resolvedDraft.updatedAt ?? null,
+    updatedAt: resolvedDraft.updatedAt ?? session?.started_at ?? null,
   }
 }
 

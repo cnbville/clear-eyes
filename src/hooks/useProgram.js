@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   buildGuidanceKey,
   buildExerciseSlotKey,
+  buildProgramSlotKey,
   flattenProgramSlots,
   getNextUnresolvedSlot,
   getOverdueSlots,
@@ -360,6 +361,41 @@ function buildAdaptiveLookups(adaptiveContext, exerciseCatalog = []) {
   }
 }
 
+function resolveAdaptiveSlotState(
+  slotState,
+  slotDefinitionByKey,
+  preferenceLookup,
+  exerciseLookup,
+  loadGuidanceLookup,
+) {
+  if (!slotState) {
+    return null
+  }
+
+  const slotKey =
+    buildProgramSlotKey({
+      phaseNumber: slotState.phase_number,
+      weekNumber: slotState.week_number,
+      dayNumber: slotState.day_number,
+    })
+  const definition = slotDefinitionByKey.get(slotKey)
+
+  return {
+    ...slotState,
+    day: resolveProgramDay(
+      definition?.day ?? null,
+      slotState.phase_number,
+      preferenceLookup,
+      exerciseLookup,
+      loadGuidanceLookup,
+    ),
+    week: definition?.week ?? null,
+    phase: definition?.phase ?? null,
+    phase_name: definition?.phase_name ?? `Phase ${slotState.phase_number}`,
+    slot_key: definition?.slot_key ?? slotKey,
+  }
+}
+
 function attachAdaptiveState(program, adaptiveContext, programExerciseCatalog) {
   const programSlots = flattenProgramSlots(program)
   const {
@@ -369,35 +405,41 @@ function attachAdaptiveState(program, adaptiveContext, programExerciseCatalog) {
   } = buildAdaptiveLookups(adaptiveContext, programExerciseCatalog)
   const slotDefinitionByKey = new Map(programSlots.map((slot) => [slot.slot_key, slot]))
   const mergedSlotStates = getResolvedSlotStates(
-    (adaptiveContext?.slotStates ?? []).map((slotState) => {
-      const definition = slotDefinitionByKey.get(
-        `p${slotState.phase_number}-w${slotState.week_number}-d${slotState.day_number}`,
-      )
-      const resolvedDay = resolveProgramDay(
-        definition?.day ?? null,
-        slotState.phase_number,
-        preferenceLookup,
-        exerciseLookup,
-        loadGuidanceLookup,
-      )
-
-      return {
-        ...slotState,
-        day: resolvedDay,
-        week: definition?.week ?? null,
-        phase: definition?.phase ?? null,
-        phase_name: definition?.phase_name ?? `Phase ${slotState.phase_number}`,
-        slot_key:
-          definition?.slot_key ??
-          `p${slotState.phase_number}-w${slotState.week_number}-d${slotState.day_number}`,
-      }
-    }),
+    (adaptiveContext?.slotStates ?? []).map((slotState) => ({
+      ...slotState,
+      slot_key: buildProgramSlotKey({
+        phaseNumber: slotState.phase_number,
+        weekNumber: slotState.week_number,
+        dayNumber: slotState.day_number,
+      }),
+      phase_name: slotDefinitionByKey.get(
+        buildProgramSlotKey({
+          phaseNumber: slotState.phase_number,
+          weekNumber: slotState.week_number,
+          dayNumber: slotState.day_number,
+        }),
+      )?.phase_name ?? `Phase ${slotState.phase_number}`,
+    })),
   )
   const currentSlot =
-    getNextUnresolvedSlot(mergedSlotStates) ??
-    mergedSlotStates[mergedSlotStates.length - 1] ??
-    null
-  const overdueSlots = getOverdueSlots(mergedSlotStates)
+    resolveAdaptiveSlotState(
+      getNextUnresolvedSlot(mergedSlotStates) ??
+        mergedSlotStates[mergedSlotStates.length - 1] ??
+        null,
+      slotDefinitionByKey,
+      preferenceLookup,
+      exerciseLookup,
+      loadGuidanceLookup,
+    )
+  const overdueSlots = getOverdueSlots(mergedSlotStates).map((slot) =>
+    resolveAdaptiveSlotState(
+      slot,
+      slotDefinitionByKey,
+      preferenceLookup,
+      exerciseLookup,
+      loadGuidanceLookup,
+    ),
+  )
   const recoveryRecommendation = getRecoveryRecommendation(mergedSlotStates)
   const weeklyQuota = getWeekQuotaSummary(
     mergedSlotStates,
@@ -407,12 +449,18 @@ function attachAdaptiveState(program, adaptiveContext, programExerciseCatalog) {
   const activeSessionRow = adaptiveContext?.activeSession ?? null
   const activeSlot =
     activeSessionRow
-      ? mergedSlotStates.find(
-          (slot) =>
-            slot?.program_day_id === activeSessionRow.program_day_id &&
-            slot?.phase_number === activeSessionRow.phase_number &&
-            slot?.week_number === activeSessionRow.week_number,
-        ) ?? null
+      ? resolveAdaptiveSlotState(
+          mergedSlotStates.find(
+            (slot) =>
+              slot?.program_day_id === activeSessionRow.program_day_id &&
+              slot?.phase_number === activeSessionRow.phase_number &&
+              slot?.week_number === activeSessionRow.week_number,
+          ) ?? null,
+          slotDefinitionByKey,
+          preferenceLookup,
+          exerciseLookup,
+          loadGuidanceLookup,
+        )
       : null
 
   return {
@@ -421,7 +469,6 @@ function attachAdaptiveState(program, adaptiveContext, programExerciseCatalog) {
           ...activeSessionRow,
           slot: activeSlot,
           day: activeSlot?.day ?? null,
-          draft: adaptiveContext?.activeDraft?.draft_data ?? null,
           draftUpdatedAt: adaptiveContext?.activeDraft?.updated_at ?? null,
         }
       : null,

@@ -6,7 +6,36 @@ import {
 } from '../lib/demoState.js'
 import { isConfigured, supabase } from '../lib/supabase.js'
 
+const GHOST_DATA_CACHE_LIMIT = 32
 const ghostDataCache = new Map()
+
+function getCachedGhostData(cacheKey) {
+  if (!cacheKey || !ghostDataCache.has(cacheKey)) {
+    return null
+  }
+
+  const cachedValue = ghostDataCache.get(cacheKey)
+  ghostDataCache.delete(cacheKey)
+  ghostDataCache.set(cacheKey, cachedValue)
+  return cachedValue
+}
+
+function setCachedGhostData(cacheKey, value) {
+  if (!cacheKey) {
+    return
+  }
+
+  if (ghostDataCache.has(cacheKey)) {
+    ghostDataCache.delete(cacheKey)
+  }
+
+  ghostDataCache.set(cacheKey, value)
+
+  while (ghostDataCache.size > GHOST_DATA_CACHE_LIMIT) {
+    const oldestKey = ghostDataCache.keys().next().value
+    ghostDataCache.delete(oldestKey)
+  }
+}
 
 function formatNumber(value) {
   const numericValue = Number(value)
@@ -43,7 +72,7 @@ export function formatGhostData(sets) {
 export function useGhostData(exerciseId, programDayId) {
   const cacheKey = exerciseId ? `${exerciseId}` : null
   const [ghostData, setGhostData] = useState(() =>
-    cacheKey ? ghostDataCache.get(cacheKey) ?? null : null,
+    cacheKey ? getCachedGhostData(cacheKey) ?? null : null,
   )
 
   useEffect(() => {
@@ -91,7 +120,7 @@ export function useGhostData(exerciseId, programDayId) {
         if (!latestSessionId) {
           if (!isCancelled) {
             if (cacheKey) {
-              ghostDataCache.set(cacheKey, null)
+              setCachedGhostData(cacheKey, null)
             }
             setGhostData(null)
           }
@@ -127,7 +156,7 @@ export function useGhostData(exerciseId, programDayId) {
 
         if (!isCancelled) {
           if (cacheKey) {
-            ghostDataCache.set(cacheKey, nextGhostData)
+            setCachedGhostData(cacheKey, nextGhostData)
           }
           setGhostData(nextGhostData)
         }

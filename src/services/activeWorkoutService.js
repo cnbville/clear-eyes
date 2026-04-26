@@ -1,6 +1,7 @@
 import {
   buildActiveWorkoutState,
   buildWorkoutSessionSnapshot,
+  resolvePreferredWorkoutDraft,
   resolveRecoverableWorkoutCandidates,
   serializeWorkoutPointer,
 } from '../lib/workoutRecovery.js'
@@ -8,6 +9,7 @@ import { isConfigured, supabase } from '../lib/supabase.js'
 
 const ACTIVE_WORKOUT_POINTER_STORAGE_KEY = 'iron-active-workout-pointer-v1'
 const CLIENT_ID_STORAGE_KEY = 'iron-client-id-v1'
+const LOCAL_WORKOUT_DRAFT_PREFIX = 'iron-local-workout-draft-v1'
 
 function canUseStorage() {
   return typeof window !== 'undefined' && Boolean(window.localStorage)
@@ -58,6 +60,10 @@ function writeStoredJson(key, value) {
   window.localStorage.setItem(key, JSON.stringify(value))
 }
 
+function getLocalWorkoutDraftStorageKey(sessionId) {
+  return `${LOCAL_WORKOUT_DRAFT_PREFIX}:${sessionId}`
+}
+
 export function readActiveWorkoutPointer() {
   return readStoredJson(ACTIVE_WORKOUT_POINTER_STORAGE_KEY)
 }
@@ -82,6 +88,44 @@ export function clearActiveWorkoutPointer() {
   window.localStorage.removeItem(ACTIVE_WORKOUT_POINTER_STORAGE_KEY)
 }
 
+export function readLocalWorkoutDraft(sessionId) {
+  if (!sessionId) {
+    return null
+  }
+
+  return readStoredJson(getLocalWorkoutDraftStorageKey(sessionId))
+}
+
+export function persistLocalWorkoutDraft(sessionId, draftData = {}) {
+  if (!canUseStorage() || !sessionId) {
+    return null
+  }
+
+  const payload = {
+    sessionId,
+    draftData,
+    updatedAt: new Date().toISOString(),
+  }
+  writeStoredJson(getLocalWorkoutDraftStorageKey(sessionId), payload)
+  return payload
+}
+
+export function clearLocalWorkoutDraft(sessionId) {
+  if (!canUseStorage() || !sessionId) {
+    return
+  }
+
+  window.localStorage.removeItem(getLocalWorkoutDraftStorageKey(sessionId))
+}
+
+function readLocalWorkoutDrafts(sessionIds = []) {
+  return new Map(
+    sessionIds
+      .map((sessionId) => [sessionId, readLocalWorkoutDraft(sessionId)])
+      .filter(([, draft]) => Boolean(draft)),
+  )
+}
+
 async function fetchDraftRows(sessionIds = []) {
   if (!sessionIds.length) {
     return new Map()
@@ -89,7 +133,7 @@ async function fetchDraftRows(sessionIds = []) {
 
   const { data, error } = await supabase
     .from('workout_session_drafts')
-    .select('*')
+    .select('session_id, updated_at, updated_by_client_id, draft_data')
     .in('session_id', sessionIds)
 
   if (error) {
@@ -106,7 +150,9 @@ async function fetchReadinessRows(sessionIds = []) {
 
   const { data, error } = await supabase
     .from('readiness_logs')
-    .select('*')
+    .select(
+      'session_id, sleep_score, soreness_score, stress_score, energy_score, readiness_score, readiness_band',
+    )
     .in('session_id', sessionIds)
 
   if (error) {
@@ -196,6 +242,7 @@ export async function saveWorkoutDraft({
 
 export async function clearWorkoutDraft(sessionId) {
   if (!isConfigured || !sessionId) {
+    clearLocalWorkoutDraft(sessionId)
     return {
       success: true,
     }
@@ -213,6 +260,7 @@ export async function clearWorkoutDraft(sessionId) {
     }
   }
 
+  clearLocalWorkoutDraft(sessionId)
   return {
     success: true,
   }
@@ -264,7 +312,7 @@ export async function prepareCustomSession({
   })
   const { data: existingSession, error: existingSessionError } = await supabase
     .from('workout_sessions')
-    .select('*')
+    .select('id, started_at, source, template_id, session_snapshot')
     .eq('source', 'custom')
     .eq('status', 'in_progress')
     .eq('template_id', templateId)
@@ -292,7 +340,7 @@ export async function prepareCustomSession({
         template_id: templateId,
         session_snapshot: snapshot,
       })
-      .select('*')
+      .select('id, started_at, source, template_id, session_snapshot')
       .single()
 
     if (createdSessionError) {
@@ -318,7 +366,7 @@ export async function prepareCustomSession({
 
   const { data: draftRow, error: draftError } = await supabase
     .from('workout_session_drafts')
-    .select('*')
+    .select('session_id, updated_at, updated_by_client_id, draft_data')
     .eq('session_id', session.id)
     .maybeSingle()
 
@@ -329,9 +377,9 @@ export async function prepareCustomSession({
     }
   }
 
-  let resolvedDraft = draftRow
+  let remoteDraftRow = draftRow
 
-  if (!resolvedDraft) {
+  if (!remoteDraftRow) {
     const { data: createdDraft, error: createdDraftError } = await supabase
       .from('workout_session_drafts')
       .insert({
@@ -341,7 +389,7 @@ export async function prepareCustomSession({
         updated_by_client_id: clientId,
         draft_data: {},
       })
-      .select('*')
+      .select('session_id, updated_at, updated_by_client_id, draft_data')
       .single()
 
     if (createdDraftError) {
@@ -351,18 +399,23 @@ export async function prepareCustomSession({
       }
     }
 
-    resolvedDraft = createdDraft
+    remoteDraftRow = createdDraft
   }
+
+  const resolvedDraft = resolvePreferredWorkoutDraft(
+    remoteDraftRow,
+    readLocalWorkoutDraft(session.id),
+  )
 
   return {
     success: true,
     session,
     sessionId: session.id,
-    draft: resolvedDraft?.draft_data ?? null,
-    draftUpdatedAt: resolvedDraft?.updated_at ?? null,
+    draft: resolvedDraft.draftData ?? null,
+    draftUpdatedAt: resolvedDraft.updatedAt ?? null,
     remoteDraftDetected:
-      Boolean(resolvedDraft?.updated_by_client_id) &&
-      resolvedDraft.updated_by_client_id !== clientId,
+      Boolean(remoteDraftRow?.updated_by_client_id) &&
+      remoteDraftRow.updated_by_client_id !== clientId,
   }
 }
 
@@ -376,7 +429,7 @@ export async function getRecoverableWorkouts(preferredSessionId = null) {
 
   const { data: sessions, error } = await supabase
     .from('workout_sessions')
-    .select('*')
+    .select('id, source, template_id, started_at, session_snapshot')
     .eq('status', 'in_progress')
     .order('started_at', { ascending: false })
     .limit(8)
@@ -398,12 +451,14 @@ export async function getRecoverableWorkouts(preferredSessionId = null) {
       fetchDraftRows(sessionIds),
       fetchReadinessRows(sessionIds),
     ])
+    const localDraftRows = readLocalWorkoutDrafts(sessionIds)
 
     const candidates = (sessions ?? [])
       .map((session) =>
         buildActiveWorkoutState({
           session,
           draft: draftRows.get(session.id) ?? null,
+          localDraft: localDraftRows.get(session.id) ?? null,
           readiness: readinessRows.get(session.id) ?? null,
           snapshot: session.session_snapshot ?? null,
           remoteDraftDetected:
@@ -426,12 +481,15 @@ export async function getRecoverableWorkouts(preferredSessionId = null) {
 
 export default {
   clearActiveWorkoutPointer,
+  clearLocalWorkoutDraft,
   clearWorkoutDraft,
   getRecoverableWorkouts,
   markWorkoutSessionAbandoned,
   persistActiveWorkoutPointer,
+  persistLocalWorkoutDraft,
   prepareCustomSession,
   readActiveWorkoutPointer,
+  readLocalWorkoutDraft,
   saveWorkoutDraft,
   saveWorkoutSessionSnapshot,
 }

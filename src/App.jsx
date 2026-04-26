@@ -610,8 +610,9 @@ function App() {
     refetch: refetchProgramSummary,
   } = useProgramSummary()
   const shouldLoadProgramRuntime = Boolean(
-    activeWorkout?.source === 'program' ||
-      sessionSummary?.source === 'program' ||
+    (activeWorkout?.source === 'program' &&
+      (!activeWorkout?.programSnapshot || !activeWorkout?.swapCandidateResolver)) ||
+    sessionSummary?.source === 'program' ||
       phaseCompletionReport ||
       ['program', 'progress', 'programs'].includes(page),
   )
@@ -630,7 +631,9 @@ function App() {
   } = useProgramRuntime(summaryProgram?.id ?? null, {
     enabled: shouldLoadProgramRuntime,
   })
-  const program = runtimeProgram ?? summaryProgram
+  const program = runtimeProgram ?? activeWorkout?.programSnapshot ?? summaryProgram
+  const resolvedGetSwapCandidates =
+    activeWorkout?.swapCandidateResolver ?? getSwapCandidates
   const programLoading =
     summaryProgramLoading ||
     (shouldLoadProgramRuntime && Boolean(summaryProgram?.id) && runtimeProgramLoading)
@@ -706,6 +709,44 @@ function App() {
       clearActiveWorkoutPointer()
     }
   }, [])
+
+  const handleWorkoutSessionReady = useCallback((readySessionId) => {
+    setActiveWorkout((currentWorkout) => {
+      if (!currentWorkout || currentWorkout.sessionId !== readySessionId) {
+        return currentWorkout
+      }
+
+      const nextProgramSnapshot =
+        currentWorkout.source === 'program' && program?.id === currentWorkout.programId
+          ? program
+          : currentWorkout.programSnapshot ?? null
+      const nextSwapCandidateResolver =
+        currentWorkout.source === 'program'
+          ? currentWorkout.swapCandidateResolver ?? getSwapCandidates ?? null
+          : null
+
+      if (
+        currentWorkout.day === null &&
+        currentWorkout.initialDraft === null &&
+        currentWorkout.initialReadiness === null &&
+        currentWorkout.remoteDraftDetected === false &&
+        currentWorkout.programSnapshot === nextProgramSnapshot &&
+        currentWorkout.swapCandidateResolver === nextSwapCandidateResolver
+      ) {
+        return currentWorkout
+      }
+
+      return {
+        ...currentWorkout,
+        day: null,
+        initialDraft: null,
+        initialReadiness: null,
+        remoteDraftDetected: false,
+        programSnapshot: nextProgramSnapshot,
+        swapCandidateResolver: nextSwapCandidateResolver,
+      }
+    })
+  }, [getSwapCandidates, program])
 
   const resolveRecoveryPrompt = useCallback(() => {
     setSessionRecoveryPrompt(null)
@@ -795,6 +836,8 @@ function App() {
         phaseInfo: null,
         source: 'custom',
         programId: null,
+        programSnapshot: null,
+        swapCandidateResolver: null,
         templateId: options.templateId ?? null,
         templateName: requestedWorkout.templateName,
         sessionId: preparation.sessionId,
@@ -827,6 +870,8 @@ function App() {
       phaseInfo: requestedWorkout.phaseInfo,
       source,
       programId: program?.id ?? null,
+      programSnapshot: program ?? null,
+      swapCandidateResolver: getSwapCandidates ?? null,
       templateId: null,
       templateName: requestedWorkout.templateName,
       sessionId: preparation.sessionId,
@@ -841,7 +886,7 @@ function App() {
       slotStatus: resolvedSlot.status ?? 'pending',
       slotDayNumber: resolvedSlot.day_number ?? day?.day_number ?? null,
     })
-  }, [applyActiveWorkout, currentSlot, program, showToast, slotStates])
+  }, [applyActiveWorkout, currentSlot, getSwapCandidates, program, showToast, slotStates])
 
   const handleSkipOverdueSlot = useCallback(async () => {
     if (!program?.id) {
@@ -1358,7 +1403,8 @@ function App() {
           initialReadiness={activeWorkout.initialReadiness ?? null}
           remoteDraftDetected={Boolean(activeWorkout.remoteDraftDetected)}
           programId={activeWorkout.programId ?? program?.id ?? null}
-          getSwapCandidates={getSwapCandidates}
+          getSwapCandidates={resolvedGetSwapCandidates}
+          onSessionReady={handleWorkoutSessionReady}
           onFinish={async (result) => {
             if (isPersistingSession) {
               return

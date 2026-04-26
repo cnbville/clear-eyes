@@ -4,11 +4,12 @@ import {
   flattenProgramSlots,
   getReadinessBand,
 } from '../lib/adaptiveProgram.js'
-import { buildWorkoutSessionSnapshot } from '../lib/workoutRecovery.js'
+import { buildWorkoutSessionSnapshot, resolvePreferredWorkoutDraft } from '../lib/workoutRecovery.js'
 import { isConfigured, supabase } from '../lib/supabase.js'
 import {
   clearWorkoutDraft as clearSharedWorkoutDraft,
   markWorkoutSessionAbandoned as markSharedWorkoutSessionAbandoned,
+  readLocalWorkoutDraft,
   saveWorkoutDraft as saveSharedWorkoutDraft,
   saveWorkoutSessionSnapshot,
 } from './activeWorkoutService.js'
@@ -69,7 +70,15 @@ async function fetchAdaptiveRows(programId) {
     .from('workout_sessions')
     .select(
       `
-        *,
+        id,
+        source,
+        status,
+        started_at,
+        program_day_id,
+        phase_number,
+        week_number,
+        template_id,
+        session_snapshot,
         program_days!inner (
           id,
           name,
@@ -98,20 +107,28 @@ async function fetchAdaptiveRows(programId) {
   ] = await Promise.all([
     supabase
       .from('program_slot_states')
-      .select('*')
+      .select(
+        'id, program_id, program_day_id, phase_number, week_number, day_number, sequence_order, status, resolved_at, last_session_id',
+      )
       .eq('program_id', programId)
       .order('sequence_order', { ascending: true }),
     supabase
       .from('program_exercise_preferences')
-      .select('*')
+      .select(
+        'program_id, phase_number, day_number, display_order, original_exercise_id, preferred_exercise_id',
+      )
       .eq('program_id', programId),
     supabase
       .from('program_load_guidance')
-      .select('*')
+      .select(
+        'program_id, phase_number, day_number, display_order, exercise_id, guidance_action, target_weight, source_session_id',
+      )
       .eq('program_id', programId),
     supabase
       .from('readiness_logs')
-      .select('*')
+      .select(
+        'id, session_id, program_day_id, phase_number, week_number, day_number, sleep_score, soreness_score, stress_score, energy_score, readiness_score, readiness_band, created_at',
+      )
       .eq('program_id', programId)
       .order('created_at', { ascending: false }),
     activeSessionPromise,
@@ -142,7 +159,7 @@ async function fetchAdaptiveRows(programId) {
   if (activeSession?.id) {
     const { data: draftRow, error: draftError } = await supabase
       .from('workout_session_drafts')
-      .select('*')
+      .select('session_id, updated_at, updated_by_client_id, draft_data')
       .eq('session_id', activeSession.id)
       .maybeSingle()
 
@@ -170,7 +187,9 @@ async function fetchExercisesByIds(ids = []) {
 
   const { data, error } = await supabase
     .from('exercises')
-    .select('*')
+    .select(
+      'id, name, slug, muscle_group, primary_muscle_group, secondary_muscles, secondary_muscle_groups, equipment, movement_type, force, mechanic, instructions, image_id, is_custom, video_url',
+    )
     .in('id', ids)
 
   if (error) {
@@ -209,7 +228,9 @@ export async function ensureProgramSlotStates(program, progress) {
 
   const { data: existingSlotStates, error } = await supabase
     .from('program_slot_states')
-    .select('*')
+    .select(
+      'id, program_id, program_day_id, phase_number, week_number, day_number, sequence_order, status, resolved_at, last_session_id',
+    )
     .eq('program_id', program.id)
     .order('sequence_order', { ascending: true })
 
@@ -259,7 +280,9 @@ export async function ensureProgramSlotStates(program, progress) {
 
   const refreshed = await supabase
     .from('program_slot_states')
-    .select('*')
+    .select(
+      'id, program_id, program_day_id, phase_number, week_number, day_number, sequence_order, status, resolved_at, last_session_id',
+    )
     .eq('program_id', program.id)
     .order('sequence_order', { ascending: true })
 
@@ -314,7 +337,9 @@ export async function prepareProgramSession({
   const clientId = getAdaptiveClientId()
   const { data: existingSession, error: existingSessionError } = await supabase
     .from('workout_sessions')
-    .select('*')
+    .select(
+      'id, source, status, started_at, program_day_id, phase_number, week_number, session_snapshot',
+    )
     .eq('source', 'program')
     .eq('status', 'in_progress')
     .eq('program_day_id', slot.program_day_id)
@@ -361,7 +386,9 @@ export async function prepareProgramSession({
         source: 'program',
         session_snapshot: sessionSnapshot,
       })
-      .select('*')
+      .select(
+        'id, source, status, started_at, program_day_id, phase_number, week_number, session_snapshot',
+      )
       .single()
 
     if (createdSessionError) {
@@ -393,12 +420,14 @@ export async function prepareProgramSession({
   ] = await Promise.all([
     supabase
       .from('workout_session_drafts')
-      .select('*')
+      .select('session_id, updated_at, updated_by_client_id, draft_data')
       .eq('session_id', session.id)
       .maybeSingle(),
     supabase
       .from('readiness_logs')
-      .select('*')
+      .select(
+        'session_id, sleep_score, soreness_score, stress_score, energy_score, readiness_score, readiness_band',
+      )
       .eq('session_id', session.id)
       .maybeSingle(),
   ])
@@ -440,12 +469,17 @@ export async function prepareProgramSession({
     }
   }
 
+  const resolvedDraft = resolvePreferredWorkoutDraft(
+    draftRow,
+    readLocalWorkoutDraft(session.id),
+  )
+
   return {
     success: true,
     session,
     sessionId: session.id,
-    draft: draftRow?.draft_data ?? null,
-    draftUpdatedAt: draftRow?.updated_at ?? null,
+    draft: resolvedDraft.draftData ?? null,
+    draftUpdatedAt: resolvedDraft.updatedAt ?? null,
     remoteDraftDetected:
       Boolean(draftRow?.updated_by_client_id) && draftRow.updated_by_client_id !== clientId,
     readiness: readinessRow ?? null,

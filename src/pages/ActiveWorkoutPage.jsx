@@ -15,7 +15,10 @@ import {
 import { parseRestNotation } from '../lib/calculations.js'
 import { getStoredPreferences } from '../lib/preferences.js'
 import { getExerciseNotesByIds, saveExerciseNote } from '../services/exerciseNoteService.js'
-import { saveWorkoutDraft } from '../services/activeWorkoutService.js'
+import {
+  persistLocalWorkoutDraft,
+  saveWorkoutDraft,
+} from '../services/activeWorkoutService.js'
 import {
   saveProgramExercisePreference,
   saveReadinessForSession,
@@ -71,6 +74,37 @@ function SessionElapsed({ startedAt, className }) {
   const elapsedSeconds = Math.max(Math.floor((now - resolvedStart) / 1000), 0)
 
   return <span className={className}>{formatDuration(elapsedSeconds)}</span>
+}
+
+function useMinWidth(minWidth) {
+  const getMatches = useCallback(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+      return false
+    }
+
+    return window.matchMedia(`(min-width: ${minWidth}px)`).matches
+  }, [minWidth])
+  const [matches, setMatches] = useState(getMatches)
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+      return undefined
+    }
+
+    const mediaQuery = window.matchMedia(`(min-width: ${minWidth}px)`)
+    const handleChange = () => {
+      setMatches(mediaQuery.matches)
+    }
+
+    handleChange()
+    mediaQuery.addEventListener('change', handleChange)
+
+    return () => {
+      mediaQuery.removeEventListener('change', handleChange)
+    }
+  }, [getMatches, minWidth])
+
+  return matches
 }
 
 function getExerciseKey(exercise, index) {
@@ -333,14 +367,17 @@ function ActiveWorkoutPage({
   remoteDraftDetected = false,
   programId = null,
   getSwapCandidates = null,
+  onSessionReady = null,
   onFinish,
 }) {
+  const [sessionDay] = useState(() => day ?? null)
+  const [sessionPhaseInfo] = useState(() => phaseInfo ?? null)
   const initialRestTimerState = useMemo(
     () => getInitialRestTimerState(initialDraft),
     [initialDraft],
   )
   const [sessionExercises, setSessionExercises] = useState(
-    () => initialDraft?.sessionExercises ?? day?.exercises ?? [],
+    () => initialDraft?.sessionExercises ?? sessionDay?.exercises ?? [],
   )
   const [currentExerciseIndex, setCurrentExerciseIndex] = useState(
     () => Math.max(Number(initialDraft?.currentExerciseIndex) || 0, 0),
@@ -388,8 +425,10 @@ function ActiveWorkoutPage({
   const [fallbackSessionStartedAt] = useState(() => Date.now())
   const [submitSignal, setSubmitSignal] = useState(0)
   const noteSaveTimeoutsRef = useRef(new Map())
-  const lastSavedDraftSignatureRef = useRef('')
+  const hasInitializedDraftPersistenceRef = useRef(false)
   const sessionPreferences = useMemo(() => getStoredPreferences(), [])
+  const isDesktopWorkoutLayout = useMinWidth(1024)
+  const showDesktopRail = useMinWidth(1280)
   const {
     seconds,
     getSeconds,
@@ -412,7 +451,7 @@ function ActiveWorkoutPage({
   const currentExerciseKey = getExerciseKey(currentExercise, safeExerciseIndex)
   const currentExerciseId =
     currentExercise?.effective_exercise_id ?? currentExercise?.exercise_id ?? null
-  const lastSessionSets = useGhostData(currentExerciseId, day?.id ?? null)
+  const lastSessionSets = useGhostData(currentExerciseId, sessionDay?.id ?? null)
   const currentExerciseLoggedCount = getLoggedSetCount(loggedSets, currentExerciseKey)
   const currentExerciseTotalSets = getTotalSetCount(currentExercise)
   const currentSetOrdinal = currentExerciseTotalSets
@@ -433,8 +472,14 @@ function ActiveWorkoutPage({
     [loggedSets, sessionExercises],
   )
   const smartRestEnabled = sessionPreferences.smartRestEnabled !== false
-  const warmupPrimers = useMemo(() => buildDayWarmupPrimers(day), [day])
+  const warmupPrimers = useMemo(() => buildDayWarmupPrimers(sessionDay), [sessionDay])
   const bottomPaddingClassName = 'pb-[10.75rem] pt-24 sm:px-6 lg:px-8 lg:pb-10 lg:pt-28'
+
+  useEffect(() => {
+    if (sessionId) {
+      onSessionReady?.(sessionId)
+    }
+  }, [onSessionReady, sessionId])
 
   useEffect(() => {
     if (!initialRestTimerState.isVisible || !initialRestTimerState.targetSeconds) {
@@ -556,7 +601,7 @@ function ActiveWorkoutPage({
     }
   }, [])
 
-  const draftPayload = useMemo(
+  const buildDraftPayload = useCallback(
     () => ({
       currentExerciseIndex: safeExerciseIndex,
       exerciseDrafts,
@@ -593,37 +638,48 @@ function ActiveWorkoutPage({
       timerStartedAt,
     ],
   )
-  const draftSignature = useMemo(() => JSON.stringify(draftPayload), [draftPayload])
 
   useEffect(() => {
-    if (initialDraft && !lastSavedDraftSignatureRef.current) {
-      lastSavedDraftSignatureRef.current = draftSignature
+    if (!sessionId) {
+      return undefined
     }
-  }, [draftSignature, initialDraft])
+
+    if (!hasInitializedDraftPersistenceRef.current) {
+      hasInitializedDraftPersistenceRef.current = true
+      return undefined
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      persistLocalWorkoutDraft(sessionId, buildDraftPayload())
+    }, 350)
+
+    return () => {
+      window.clearTimeout(timeoutId)
+    }
+  }, [buildDraftPayload, sessionId])
 
   useEffect(() => {
-    if (!sessionId || draftSignature === lastSavedDraftSignatureRef.current) {
+    if (!sessionId || !hasInitializedDraftPersistenceRef.current) {
       return undefined
     }
 
     const timeoutId = window.setTimeout(() => {
       void (async () => {
+        const draftPayload = buildDraftPayload()
         const result = await saveWorkoutDraft({
           sessionId,
           source,
           programId: source === 'program' ? programId : null,
-          programDayId: day?.id ?? null,
-          phaseNumber: source === 'program' ? phaseInfo?.phase_number ?? null : null,
-          weekNumber: source === 'program' ? phaseInfo?.week ?? null : null,
-          dayNumber: day?.day_number ?? null,
+          programDayId: sessionDay?.id ?? null,
+          phaseNumber: source === 'program' ? sessionPhaseInfo?.phase_number ?? null : null,
+          weekNumber: source === 'program' ? sessionPhaseInfo?.week ?? null : null,
+          dayNumber: sessionDay?.day_number ?? null,
           templateId,
           draftData: draftPayload,
         })
 
         if (result.success) {
-          const savedAt = new Date().toISOString()
-          lastSavedDraftSignatureRef.current = draftSignature
-          setLastDraftSavedAt(savedAt)
+          setLastDraftSavedAt(new Date().toISOString())
         }
       })()
     }, 5000)
@@ -632,17 +688,41 @@ function ActiveWorkoutPage({
       window.clearTimeout(timeoutId)
     }
   }, [
-    day?.day_number,
-    day?.id,
-    draftPayload,
-    draftSignature,
-    phaseInfo?.phase_number,
-    phaseInfo?.week,
+    buildDraftPayload,
     programId,
     sessionId,
+    sessionDay?.day_number,
+    sessionDay?.id,
+    sessionPhaseInfo?.phase_number,
+    sessionPhaseInfo?.week,
     source,
     templateId,
   ])
+
+  useEffect(() => {
+    if (!sessionId) {
+      return undefined
+    }
+
+    const flushLocalDraft = () => {
+      persistLocalWorkoutDraft(sessionId, buildDraftPayload())
+    }
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        flushLocalDraft()
+      }
+    }
+
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    window.addEventListener('pagehide', flushLocalDraft)
+    window.addEventListener('beforeunload', flushLocalDraft)
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+      window.removeEventListener('pagehide', flushLocalDraft)
+      window.removeEventListener('beforeunload', flushLocalDraft)
+    }
+  }, [buildDraftPayload, sessionId])
 
   function dismissRestTimer({ preserve = false } = {}) {
     if (preserve && showRestTimer && currentRestPrescribed > 0) {
@@ -752,7 +832,7 @@ function ActiveWorkoutPage({
       sessionId,
       readiness,
       day: {
-        ...day,
+        ...(sessionDay ?? {}),
         exercises: sessionExercises,
       },
     })
@@ -822,7 +902,7 @@ function ActiveWorkoutPage({
       mechanic: currentExercise.mechanic ?? null,
       notes: currentExercise.notes ?? currentExercise.coaching_cue ?? null,
       is_adhoc: Boolean(currentExercise.is_adhoc),
-      program_day_id: day?.id ?? null,
+      program_day_id: sessionDay?.id ?? null,
       source,
       template_id: templateId,
       logged_at: new Date().toISOString(),
@@ -878,9 +958,9 @@ function ActiveWorkoutPage({
     if (
       !programId ||
       !sessionId ||
-      !day?.id ||
-      !phaseInfo?.phase_number ||
-      !phaseInfo?.week ||
+      !sessionDay?.id ||
+      !sessionPhaseInfo?.phase_number ||
+      !sessionPhaseInfo?.week ||
       !readinessScores.sleep ||
       !readinessScores.soreness ||
       !readinessScores.stress ||
@@ -894,10 +974,10 @@ function ActiveWorkoutPage({
       programId,
       sessionId,
       slot: {
-        program_day_id: day.id,
-        phase_number: phaseInfo.phase_number,
-        week_number: phaseInfo.week,
-        day_number: day.day_number ?? null,
+        program_day_id: sessionDay.id,
+        phase_number: sessionPhaseInfo.phase_number,
+        week_number: sessionPhaseInfo.week,
+        day_number: sessionDay.day_number ?? null,
       },
       scores: readinessScores,
     })
@@ -991,8 +1071,8 @@ function ActiveWorkoutPage({
 
     const result = await saveProgramExercisePreference({
       programId,
-      phaseNumber: phaseInfo?.phase_number ?? null,
-      dayNumber: day?.day_number ?? currentExercise?.day_number ?? null,
+      phaseNumber: sessionPhaseInfo?.phase_number ?? null,
+      dayNumber: sessionDay?.day_number ?? currentExercise?.day_number ?? null,
       displayOrder: currentExercise?.display_order ?? null,
       originalExerciseId:
         currentExercise?.original_exercise_id ?? currentExercise?.exercise_id ?? null,
@@ -1045,14 +1125,14 @@ function ActiveWorkoutPage({
     () => [
       'IRON',
       'Session',
-      currentExercise?.name ?? day?.name ?? 'Workout',
+      currentExercise?.name ?? sessionDay?.name ?? 'Workout',
       currentExerciseTotalSets ? `Set ${currentSetOrdinal} of ${currentExerciseTotalSets}` : 'Overview',
     ],
     [
       currentExercise?.name,
       currentExerciseTotalSets,
       currentSetOrdinal,
-      day?.name,
+      sessionDay?.name,
     ],
   )
 
@@ -1080,7 +1160,7 @@ function ActiveWorkoutPage({
             </button>
 
             <p className="min-w-0 truncate text-[15px] font-semibold tracking-[-0.02em] text-zinc-100">
-              {source === 'custom' ? templateName ?? day?.name ?? 'Custom Workout' : day?.name ?? 'Workout'}
+              {source === 'custom' ? templateName ?? sessionDay?.name ?? 'Custom Workout' : sessionDay?.name ?? 'Workout'}
             </p>
 
             <p className="shrink-0 font-mono text-[12px] text-zinc-500">
@@ -1092,7 +1172,7 @@ function ActiveWorkoutPage({
             <p className="text-[12px] text-zinc-500">
               {source === 'custom'
                 ? 'Custom Session'
-                : `Phase ${phaseInfo?.phase_number ?? 1} · Wk${phaseInfo?.week ?? 1}`}
+                : `Phase ${sessionPhaseInfo?.phase_number ?? 1} · Wk${sessionPhaseInfo?.week ?? 1}`}
             </p>
             <p className="font-mono text-[12px] text-zinc-400">
               <SessionElapsed startedAt={effectiveSessionStartedAt} />
@@ -1120,7 +1200,7 @@ function ActiveWorkoutPage({
             ) : null}
 
             {source === 'program' && !readiness ? (
-              <>
+              !isDesktopWorkoutLayout ? (
                 <MobilePanel
                   label="Readiness"
                   headline="Quick check-in before you train"
@@ -1183,8 +1263,8 @@ function ActiveWorkoutPage({
                     </button>
                   </div>
                 </MobilePanel>
-
-                <section className="hidden rounded-[28px] border border-gold/15 bg-gold/[0.06] p-5 lg:block">
+              ) : (
+                <section className="rounded-[28px] border border-gold/15 bg-gold/[0.06] p-5">
                   <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-gold">
                     Readiness Check
                   </p>
@@ -1248,11 +1328,11 @@ function ActiveWorkoutPage({
                     </button>
                   </div>
                 </section>
-              </>
+              )
             ) : null}
 
             {source === 'program' && readiness?.guidance ? (
-              <>
+              !isDesktopWorkoutLayout ? (
                 <MobilePanel
                   label="Readiness"
                   headline={
@@ -1275,9 +1355,9 @@ function ActiveWorkoutPage({
                     {readiness.guidance}
                   </div>
                 </MobilePanel>
-
+              ) : (
                 <section
-                  className={`hidden rounded-[28px] border p-5 text-[13px] leading-6 lg:block ${
+                  className={`rounded-[28px] border p-5 text-[13px] leading-6 ${
                     readiness?.readiness_band === 'green'
                       ? 'border-mint/20 bg-mint/[0.08] text-zinc-200'
                       : readiness?.readiness_band === 'yellow'
@@ -1294,68 +1374,70 @@ function ActiveWorkoutPage({
                   </p>
                   <p className="mt-2">{readiness.guidance}</p>
                 </section>
-              </>
+              )
             ) : null}
 
-            <MobilePanel
-              label="Session"
-              headline={`${completedExerciseCount}/${totalExercises || 0} exercises complete`}
-            >
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div className="rounded-[20px] border border-white/[0.05] bg-iron-950/70 px-4 py-4">
-                  <p className="text-[10px] uppercase tracking-[0.18em] text-zinc-600">Elapsed</p>
-                  <p className="mt-2 font-mono text-[22px] font-bold text-zinc-50">
-                    <SessionElapsed startedAt={effectiveSessionStartedAt} />
-                  </p>
+            {!isDesktopWorkoutLayout ? (
+              <MobilePanel
+                label="Session"
+                headline={`${completedExerciseCount}/${totalExercises || 0} exercises complete`}
+              >
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="rounded-[20px] border border-white/[0.05] bg-iron-950/70 px-4 py-4">
+                    <p className="text-[10px] uppercase tracking-[0.18em] text-zinc-600">Elapsed</p>
+                    <p className="mt-2 font-mono text-[22px] font-bold text-zinc-50">
+                      <SessionElapsed startedAt={effectiveSessionStartedAt} />
+                    </p>
+                  </div>
+                  <div className="rounded-[20px] border border-white/[0.05] bg-iron-950/70 px-4 py-4">
+                    <p className="text-[10px] uppercase tracking-[0.18em] text-zinc-600">Logged</p>
+                    <p className="mt-2 font-mono text-[22px] font-bold text-zinc-50">
+                      {loggedSets.length}
+                    </p>
+                  </div>
                 </div>
-                <div className="rounded-[20px] border border-white/[0.05] bg-iron-950/70 px-4 py-4">
-                  <p className="text-[10px] uppercase tracking-[0.18em] text-zinc-600">Logged</p>
-                  <p className="mt-2 font-mono text-[22px] font-bold text-zinc-50">
-                    {loggedSets.length}
-                  </p>
-                </div>
-              </div>
 
-              <div className="mt-4 space-y-2">
-                {sessionExercises.map((exercise, index) => {
-                  const exerciseKey = getExerciseKey(exercise, index)
-                  const completedSets = getLoggedSetCount(loggedSets, exerciseKey)
-                  const totalSets = getTotalSetCount(exercise)
-                  const isActive = index === safeExerciseIndex
-                  const isComplete = totalSets > 0 && completedSets >= totalSets
+                <div className="mt-4 space-y-2">
+                  {sessionExercises.map((exercise, index) => {
+                    const exerciseKey = getExerciseKey(exercise, index)
+                    const completedSets = getLoggedSetCount(loggedSets, exerciseKey)
+                    const totalSets = getTotalSetCount(exercise)
+                    const isActive = index === safeExerciseIndex
+                    const isComplete = totalSets > 0 && completedSets >= totalSets
 
-                  return (
-                    <button
-                      key={exerciseKey}
-                      type="button"
-                      className={`min-h-[52px] w-full rounded-[20px] border px-4 py-3 text-left transition ${
-                        isActive
-                          ? 'border-gold/30 bg-gold/[0.08]'
-                          : isComplete
-                            ? 'border-mint/20 bg-mint/[0.08]'
-                            : 'border-white/[0.04] bg-iron-950/60'
-                      }`}
-                      onClick={() => {
-                        dismissRestTimer({ preserve: true })
-                        setCurrentExerciseIndex(index)
-                      }}
-                    >
-                      <div className="flex items-center justify-between gap-3">
-                        <div>
-                          <p className="text-[13px] font-semibold text-zinc-100">
-                            {exercise?.name}
-                          </p>
-                          <p className="mt-1 text-[11px] text-zinc-500">
-                            {completedSets}/{totalSets || 0} sets logged
-                          </p>
+                    return (
+                      <button
+                        key={exerciseKey}
+                        type="button"
+                        className={`min-h-[52px] w-full rounded-[20px] border px-4 py-3 text-left transition ${
+                          isActive
+                            ? 'border-gold/30 bg-gold/[0.08]'
+                            : isComplete
+                              ? 'border-mint/20 bg-mint/[0.08]'
+                              : 'border-white/[0.04] bg-iron-950/60'
+                        }`}
+                        onClick={() => {
+                          dismissRestTimer({ preserve: true })
+                          setCurrentExerciseIndex(index)
+                        }}
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <p className="text-[13px] font-semibold text-zinc-100">
+                              {exercise?.name}
+                            </p>
+                            <p className="mt-1 text-[11px] text-zinc-500">
+                              {completedSets}/{totalSets || 0} sets logged
+                            </p>
+                          </div>
+                          <span className="font-mono text-[12px] text-zinc-500">{index + 1}</span>
                         </div>
-                        <span className="font-mono text-[12px] text-zinc-500">{index + 1}</span>
-                      </div>
-                    </button>
-                  )
-                })}
-              </div>
-            </MobilePanel>
+                      </button>
+                    )
+                  })}
+                </div>
+              </MobilePanel>
+            ) : null}
 
             {currentExercise ? (
               <ExerciseCard
@@ -1368,7 +1450,7 @@ function ActiveWorkoutPage({
                 onUseSwap={(option) => handleApplySwap(option, false)}
                 onRememberSwap={(option) => void handleRememberSwap(option)}
                 onOpenSwapOptions={() => void loadSwapOptions(currentExercise, currentExerciseKey)}
-                phaseColor={phaseInfo?.phaseColor ?? '#c9a227'}
+                phaseColor={sessionPhaseInfo?.phaseColor ?? '#c9a227'}
                 submitSignal={submitSignal}
                 swapOptions={swapOptions}
                 swapOptionsLoading={swapOptionsLoading}
@@ -1400,7 +1482,7 @@ function ActiveWorkoutPage({
                 isRunning={isRunning}
                 elapsed={seconds}
                 timerStartedAt={timerStartedAt}
-                phaseColor={phaseInfo?.phaseColor ?? '#c9a227'}
+                phaseColor={sessionPhaseInfo?.phaseColor ?? '#c9a227'}
                 onSkip={() => dismissRestTimer({ preserve: true })}
                 onAdjust={handleAdjustRest}
               />
@@ -1418,7 +1500,8 @@ function ActiveWorkoutPage({
             ) : null}
           </div>
 
-          <aside className="hidden xl:block">
+          {showDesktopRail ? (
+          <aside>
             <div className="sticky top-28 space-y-4">
               <section className="rounded-[28px] border border-white/[0.05] bg-[linear-gradient(180deg,rgba(20,20,22,0.94),rgba(10,10,11,0.92))] p-5">
                 <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-zinc-500">
@@ -1448,7 +1531,7 @@ function ActiveWorkoutPage({
                   <div className="rounded-[22px] border border-white/[0.05] bg-iron-950/70 px-4 py-4">
                     <p className="text-[10px] uppercase tracking-[0.18em] text-zinc-600">Phase</p>
                     <p className="mt-2 font-mono text-[22px] font-bold text-zinc-50">
-                      P{phaseInfo?.phase_number ?? 1}
+                      P{sessionPhaseInfo?.phase_number ?? 1}
                     </p>
                   </div>
                 </div>
@@ -1536,10 +1619,12 @@ function ActiveWorkoutPage({
               </section>
             </div>
           </aside>
+          ) : null}
         </div>
       </section>
 
-      <div className="fixed inset-x-0 bottom-0 z-30 border-t border-white/[0.05] bg-iron-900/95 backdrop-blur-xl lg:hidden">
+      {!isDesktopWorkoutLayout ? (
+      <div className="fixed inset-x-0 bottom-0 z-30 border-t border-white/[0.05] bg-iron-900/95 backdrop-blur-xl">
         <div className="mx-auto grid w-full max-w-lg grid-cols-2 gap-2 px-4 pb-[calc(env(safe-area-inset-bottom)+0.85rem)] pt-3">
           <button
             type="button"
@@ -1579,6 +1664,7 @@ function ActiveWorkoutPage({
           </button>
         </div>
       </div>
+      ) : null}
     </>
   )
 }

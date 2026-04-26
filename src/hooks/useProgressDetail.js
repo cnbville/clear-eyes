@@ -6,7 +6,36 @@ import { isConfigured, supabase } from '../lib/supabase.js'
 const DETAIL_LOOKBACK_MONTHS = 6
 const DETAIL_SESSION_LIMIT = 60
 const DETAIL_SET_LIMIT = 3000
+const DETAIL_CACHE_LIMIT = 12
 const detailCache = new Map()
+
+function getCachedDetail(cacheKey) {
+  if (!cacheKey || !detailCache.has(cacheKey)) {
+    return null
+  }
+
+  const cachedValue = detailCache.get(cacheKey)
+  detailCache.delete(cacheKey)
+  detailCache.set(cacheKey, cachedValue)
+  return cachedValue
+}
+
+function setCachedDetail(cacheKey, detail) {
+  if (!cacheKey) {
+    return
+  }
+
+  if (detailCache.has(cacheKey)) {
+    detailCache.delete(cacheKey)
+  }
+
+  detailCache.set(cacheKey, detail)
+
+  while (detailCache.size > DETAIL_CACHE_LIMIT) {
+    const oldestKey = detailCache.keys().next().value
+    detailCache.delete(oldestKey)
+  }
+}
 
 function getSessionProgramId(session) {
   const programWeeks = Array.isArray(session?.program_days?.program_weeks)
@@ -235,7 +264,7 @@ export function useProgressDetail(programId, selectedExerciseId, sourceFilter = 
       }
 
       const cacheKey = `${programId}:${selectedExerciseId}:${sourceFilter}`
-      const cachedValue = detailCache.get(cacheKey)
+      const cachedValue = getCachedDetail(cacheKey)
 
       if (cachedValue) {
         if (!isCancelled) {
@@ -262,7 +291,7 @@ export function useProgressDetail(programId, selectedExerciseId, sourceFilter = 
             ? fetchLocalDetail(programId, selectedExerciseId, sourceFilter)
             : buildEmptyDetail()
 
-        detailCache.set(cacheKey, detail)
+        setCachedDetail(cacheKey, detail)
 
         if (!isCancelled) {
           setState({
